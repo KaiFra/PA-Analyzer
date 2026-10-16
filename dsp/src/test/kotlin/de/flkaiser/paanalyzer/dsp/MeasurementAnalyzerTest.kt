@@ -40,12 +40,26 @@ class MeasurementAnalyzerTest {
         for (i in result.indicesIn(40.0, 16_000.0)) {
             assertEquals(-6.02, result.fundamentalDb[i], 0.3, "fundamental at ${result.frequencies[i]} Hz")
         }
-        for (i in result.indicesIn(40.0, 8_000.0)) {
+        // Everywhere THD is reported, including where a harmonic reaches the top of the sweep.
+        for (i in result.indicesIn(40.0, 20_000.0)) {
+            if (result.thdDb[i].isNaN()) continue
             assertTrue(result.thdDb[i] < -60.0, "THD ${result.thdDb[i]} dB at ${result.frequencies[i]} Hz")
         }
         assertEquals(100.0, result.delayMs, 1.0)
         assertTrue(result.irSnrDb > 60.0, "IR SNR ${result.irSnrDb}")
         assertEquals(emptyList(), result.warnings)
+    }
+
+    @Test
+    fun distortionHasNoSpikesWhereHarmonicsReachTheTopOfTheSweep() {
+        // With background noise, the harmonic levels near the end of the sweep are amplified by the
+        // sweep's fade-out unless that part is left out. THD must stay smooth there.
+        val result = analyze(s = settings.copy(smoothing = Smoothing.OCT_12), noiseDbfs = -70.0, system = SimulatedSystem.memoryless { 0.5 * it })
+        val thd = result.thdDb
+        for (i in 1 until thd.size) {
+            if (thd[i].isNaN() || thd[i - 1].isNaN()) continue
+            assertTrue(thd[i] - thd[i - 1] < 6.0, "THD jumps from ${thd[i - 1]} to ${thd[i]} dB at ${result.frequencies[i]} Hz")
+        }
     }
 
     @Test
@@ -89,8 +103,9 @@ class MeasurementAnalyzerTest {
         val h3 = result.harmonics.first { it.order == 3 }
         for (i in result.frequencies.indices) {
             val f = result.frequencies[i]
-            if (2 * f > settings.endHz) assertTrue(result.thdDb[i].isNaN(), "THD at $f Hz should be NaN")
-            if (3 * f > settings.endHz) assertTrue(h3.levelDb[i].isNaN(), "H3 at $f Hz should be NaN")
+            val top = settings.endHz / Math.pow(2.0, 1.0 / 6.0)
+            if (2 * f > top) assertTrue(result.thdDb[i].isNaN(), "THD at $f Hz should be NaN")
+            if (3 * f > top) assertTrue(h3.levelDb[i].isNaN(), "H3 at $f Hz should be NaN")
         }
     }
 

@@ -101,7 +101,9 @@ class MeasurementAnalyzer(val settings: SweepSettings) {
         val fraction = settings.smoothing.fraction
         val frequencies = LogGrid.create(settings.startHz, settings.endHz, POINTS_PER_OCTAVE)
         val fundamentalPower = DoubleArray(frequencies.size) { spectra[0].powerAt(frequencies[it], fraction) }
-        val limitHz = min(settings.endHz, MAX_HARMONIC_FRACTION * fs)
+        // Harmonics are only valid below the sweep's fade-out: there the deconvolution divides by the
+        // faded sweep, but the harmonic was excited at full level by a lower frequency.
+        val limitHz = min(settings.endHz / HARMONIC_TOP_MARGIN, MAX_HARMONIC_FRACTION * fs)
         val harmonics = (2..settings.maxHarmonic).map { k ->
             HarmonicCurve(k, DoubleArray(frequencies.size) { i ->
                 val f = k * frequencies[i]
@@ -202,6 +204,8 @@ class MeasurementAnalyzer(val settings: SweepSettings) {
     companion object {
         const val POINTS_PER_OCTAVE = 48
         private const val MAX_HARMONIC_FRACTION = 0.45
+        /** 1/6 octave: the 1/12-octave fade-out plus room for smoothing. */
+        private val HARMONIC_TOP_MARGIN = Math.pow(2.0, 1.0 / 6.0)
         private const val NOISE_GUARD_SEC = 0.02
         private const val CLIP_LEVEL = 0.99f
         private const val LOW_INPUT_DBFS = -60.0
