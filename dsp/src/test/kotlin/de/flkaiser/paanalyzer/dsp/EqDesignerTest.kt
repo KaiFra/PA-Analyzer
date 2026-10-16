@@ -2,6 +2,7 @@ package de.flkaiser.paanalyzer.dsp
 
 import org.junit.Test
 import kotlin.math.abs
+import kotlin.math.log2
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -224,9 +225,38 @@ class EqDesignerTest {
 
     @Test
     fun followsATiltedTarget() {
-        val s = design(response(), EqSettings(target = EqTarget.TILT, minHz = 40.0, maxHz = 16_000.0, suggestHighPass = false))
+        val s = design(response(), EqTarget.TILT.applyTo(EqSettings(minHz = 40.0, maxHz = 16_000.0, suggestHighPass = false)))
         assertTrue(s.filters.isNotEmpty())
         assertTrue(s.rmsAfterDb < 0.6, "after ${s.rmsAfterDb} (before ${s.rmsBeforeDb})")
+    }
+
+    @Test
+    fun targetCurveFollowsTiltAndBassBoost() {
+        val s = EqSettings(tiltDbPerOctave = -1.0, bassBoostDb = 8.0, bassBoostHz = 80.0)
+        assertEquals(0.0, EqSettings(tiltDbPerOctave = -1.0).targetDb(1_000.0), 1e-9)
+        assertEquals(1.0, EqSettings(tiltDbPerOctave = -1.0).targetDb(500.0), 1e-9)
+        assertEquals(-2.0, EqSettings(tiltDbPerOctave = -1.0).targetDb(4_000.0), 1e-9)
+        // The bass boost adds to the tilt: half of it at the corner frequency, nearly all of it two octaves below,
+        // hardly anything in the mid band.
+        assertEquals(4.0 + log2(1_000.0 / 80.0), s.targetDb(80.0), 1e-9)
+        assertTrue(s.targetDb(20.0) - log2(1_000.0 / 20.0) > 7.5)
+        assertTrue(s.targetDb(1_000.0) in 0.0..0.1)
+        assertEquals(null, s.preset)
+        assertEquals(EqTarget.LIVE, EqTarget.LIVE.applyTo(s).preset)
+        assertEquals(EqTarget.FLAT, EqSettings().preset)
+        assertEquals("tilt −1 dB/oct, bass +8 dB below 80 Hz", s.targetLabel)
+        assertTrue(EqSettings(tiltDbPerOctave = -3.0).validate().isNotEmpty())
+        assertTrue(EqSettings(bassBoostDb = 13.0).validate().isNotEmpty())
+    }
+
+    @Test
+    fun bassBoostTargetKeepsTheBass() {
+        // A flat speaker and a target with +6 dB in the bass: the EQ adds bass (within the boost limit).
+        val flat = design(response(), EqSettings(minHz = 30.0, maxHz = 16_000.0, suggestHighPass = false))
+        val boosted = design(response(), EqSettings(minHz = 30.0, maxHz = 16_000.0, suggestHighPass = false, bassBoostDb = 6.0, maxBoostDb = 6.0))
+        assertTrue(flat.filters.isEmpty())
+        val at40 = boosted.eqDb[grid.indexOfFirst { it >= 40.0 }]
+        assertTrue(at40 > 3.0, "EQ at 40 Hz: $at40 dB, ${boosted.filters}")
     }
 
     @Test
