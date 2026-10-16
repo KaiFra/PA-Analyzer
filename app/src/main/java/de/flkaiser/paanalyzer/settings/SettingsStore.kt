@@ -17,4 +17,13 @@ class SettingsStore(context: Context) {
             for ((k, v) in SettingsCodec.encode(settings)) putString(k, v)
         }
     }
+
+    /** Ids of the curves shown in the results chart, or null if never changed. */
+    fun loadCurves(): Set<String>? = prefs.getStringSet(KEY_CURVES, null)?.toSet()
+
+    fun saveCurves(ids: Set<String>) = prefs.edit { putStringSet(KEY_CURVES, ids) }
+
+    private companion object {
+        const val KEY_CURVES = "visibleCurves"
+    }
 }

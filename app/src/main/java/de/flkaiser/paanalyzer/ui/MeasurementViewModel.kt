@@ -4,14 +4,20 @@ import android.app.Application
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.flkaiser.paanalyzer.audio.AudioEngine
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.DeviceSelection
+import de.flkaiser.paanalyzer.data.MeasurementRepository
+import de.flkaiser.paanalyzer.data.SavedEntry
 import de.flkaiser.paanalyzer.dsp.MeasurementAnalyzer
+import de.flkaiser.paanalyzer.dsp.MeasurementDocument
+import de.flkaiser.paanalyzer.dsp.MeasurementFileException
 import de.flkaiser.paanalyzer.dsp.MeasurementResult
 import de.flkaiser.paanalyzer.settings.AppSettings
 import de.flkaiser.paanalyzer.settings.SettingsForm
@@ -25,6 +31,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.DateFormat
+import java.util.Date
+
+enum class Page { MEASURE, RESULTS, SETTINGS }
 
 sealed interface Phase {
     data object Idle : Phase
@@ -33,7 +43,18 @@ sealed interface Phase {
     data class Failed(val message: String) : Phase
 }
 
+/** The measurement shown on the results page; [savedId] is null until it is saved. */
+data class CurrentMeasurement(
+    val result: MeasurementResult,
+    val name: String,
+    val createdAtMillis: Long,
+    val savedId: String?,
+) {
+    val curves: List<Curve> by lazy { Curves.build(result) }
+}
+
 data class UiState(
+    val page: Page = Page.MEASURE,
     val form: SettingsForm,
     val formErrors: List<String> = emptyList(),
     val outputs: List<DeviceOption> = emptyList(),
@@ -42,7 +63,11 @@ data class UiState(
     val selectedInput: DeviceOption? = null,
     val micSource: String = "",
     val phase: Phase = Phase.Idle,
-    val result: MeasurementResult? = null,
+    val current: CurrentMeasurement? = null,
+    val library: List<SavedEntry> = emptyList(),
+    val visibleCurves: Set<String> = Curves.DEFAULT_VISIBLE,
+    /** One-off message for a snackbar. */
+    val message: String? = null,
 ) {
     val busy: Boolean get() = phase is Phase.Measuring || phase is Phase.Analyzing
 }
@@ -51,10 +76,16 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     private val engine = AudioEngine(application)
     private val store = SettingsStore(application)
-    private var settings: AppSettings = store.load()
+    private val repository = MeasurementRepository(application)
     private var job: Job? = null
 
-    private val _state = MutableStateFlow(UiState(form = SettingsForm.from(settings), micSource = engine.micSourceLabel))
+    private val _state = MutableStateFlow(
+        UiState(
+            form = SettingsForm.from(store.load()),
+            micSource = engine.micSourceLabel,
+            visibleCurves = store.loadCurves() ?: Curves.DEFAULT_VISIBLE,
+        ),
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val audioManager = application.getSystemService(AudioManager::class.java)
@@ -66,11 +97,16 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     init {
         audioManager.registerAudioDeviceCallback(deviceCallback, Handler(Looper.getMainLooper()))
         refreshDevices()
+        refreshLibrary()
     }
 
     override fun onCleared() {
         audioManager.unregisterAudioDeviceCallback(deviceCallback)
     }
+
+    fun selectPage(page: Page) = _state.update { it.copy(page = page) }
+
+    // ---- Devices and settings ----
 
     fun refreshDevices() {
         val outputs = DeviceSelection.visibleOutputs(engine.outputDevices().map { it.toOption() })
@@ -92,13 +128,12 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     fun updateForm(form: SettingsForm) {
         val parsed = form.parse()
         _state.update { it.copy(form = form, formErrors = parsed.errors) }
-        parsed.settings?.let {
-            settings = it
-            store.save(it)
-        }
+        parsed.settings?.let { store.save(it) }
     }
 
     fun resetSettings() = updateForm(SettingsForm.from(AppSettings()))
+
+    // ---- Measuring ----
 
     fun start() {
         if (_state.value.busy) return
@@ -127,7 +162,14 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
                 val result = withContext(Dispatchers.Default) {
                     analyzer.analyze(recording) { p -> _state.update { it.copy(phase = Phase.Analyzing(p)) } }
                 }
-                _state.update { it.copy(phase = Phase.Idle, result = result) }
+                val now = System.currentTimeMillis()
+                _state.update {
+                    it.copy(
+                        phase = Phase.Idle,
+                        current = CurrentMeasurement(result, defaultName(now), now, savedId = null),
+                        page = Page.RESULTS,
+                    )
+                }
             } catch (e: CancellationException) {
                 _state.update { it.copy(phase = Phase.Idle) }
                 throw e
@@ -144,6 +186,110 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun dismissError() = _state.update { if (it.phase is Phase.Failed) it.copy(phase = Phase.Idle) else it }
+
+    // ---- Results ----
+
+    fun toggleCurve(id: String) {
+        val updated = _state.value.visibleCurves.let { if (id in it) it - id else it + id }
+        _state.update { it.copy(visibleCurves = updated) }
+        store.saveCurves(updated)
+    }
+
+    fun messageShown() = _state.update { it.copy(message = null) }
+
+    /** Saves the current measurement under [name], or renames it if it is already saved. */
+    fun saveCurrent(name: String) {
+        val current = _state.value.current ?: return
+        val cleanName = name.trim().ifEmpty { current.name }
+        launchIo("Could not save the measurement") {
+            val entry = if (current.savedId == null) {
+                repository.save(current.result, cleanName, current.createdAtMillis)
+            } else {
+                repository.rename(current.savedId, cleanName)
+            }
+            _state.update {
+                it.copy(current = current.copy(name = entry.name, savedId = entry.id), message = "Saved as “${entry.name}”")
+            }
+            refreshLibrary()
+        }
+    }
+
+    fun loadSaved(id: String) = launchIo("Could not open the measurement") {
+        val doc = repository.load(id)
+        show(doc, id)
+    }
+
+    fun renameSaved(id: String, name: String) = launchIo("Could not rename the measurement") {
+        val entry = repository.rename(id, name.trim().ifEmpty { "Measurement" })
+        _state.update { s ->
+            val current = s.current?.takeIf { it.savedId == id }?.copy(name = entry.name)
+            s.copy(current = current ?: s.current)
+        }
+        refreshLibrary()
+    }
+
+    fun deleteSaved(id: String) = launchIo("Could not delete the measurement") {
+        repository.delete(id)
+        // A deleted measurement stays on screen, but is no longer saved.
+        _state.update { s -> s.copy(current = s.current?.let { if (it.savedId == id) it.copy(savedId = null) else it }) }
+        refreshLibrary()
+    }
+
+    fun importFile(uri: Uri) = launchIo("Could not import the file") {
+        val app = getApplication<Application>()
+        val text = withContext(Dispatchers.IO) {
+            app.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
+        } ?: throw MeasurementFileException("The file could not be read.")
+        val fallbackName = withContext(Dispatchers.IO) { displayName(uri) } ?: "Imported measurement"
+        val (entry, doc) = repository.import(text, fallbackName)
+        show(doc, entry.id)
+        _state.update { it.copy(message = "Imported “${entry.name}”") }
+        refreshLibrary()
+    }
+
+    /** CSV text of the current measurement for sharing. */
+    fun exportCurrent(): Pair<String, String>? {
+        val current = _state.value.current ?: return null
+        return current.name to repository.export(MeasurementDocument(current.name, current.createdAtMillis, current.result))
+    }
+
+    private fun show(doc: MeasurementDocument, id: String) {
+        _state.update {
+            it.copy(
+                current = CurrentMeasurement(doc.result, doc.name.ifBlank { defaultName(doc.createdAtMillis) }, doc.createdAtMillis, id),
+                page = Page.RESULTS,
+            )
+        }
+    }
+
+    private fun refreshLibrary() {
+        viewModelScope.launch {
+            val entries = runCatching { repository.list() }.getOrDefault(emptyList())
+            _state.update { it.copy(library = entries) }
+        }
+    }
+
+    private fun launchIo(failure: String, block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(message = "$failure: ${e.message ?: e.javaClass.simpleName}") }
+            }
+        }
+    }
+
+    private fun displayName(uri: Uri): String? {
+        val app = getApplication<Application>()
+        return app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0)?.substringBeforeLast('.') else null
+        }
+    }
+
+    private fun defaultName(millis: Long): String =
+        "Measurement " + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 }
 
 private fun AudioDeviceInfo.toOption() = DeviceOption(id = id, type = type, name = productName?.toString().orEmpty().ifBlank { "Device $id" })

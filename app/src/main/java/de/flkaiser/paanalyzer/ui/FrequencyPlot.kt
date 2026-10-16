@@ -1,29 +1,14 @@
 package de.flkaiser.paanalyzer.ui
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -33,16 +18,16 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.foundation.background
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 
 class PlotSeries(
-    val label: String,
     val frequencies: DoubleArray,
     val values: DoubleArray,
     val color: Color,
@@ -50,102 +35,141 @@ class PlotSeries(
     val width: Float = 2f,
 )
 
+/** What the chart's gestures ask for. Ranges are owned by the caller. */
+interface PlotGestures {
+    fun cursor(frequencyHz: Double)
+    /** Zoom factors per axis (> 1 = in) around an anchor given as fractions of the plot (x from left, y from bottom). */
+    fun zoom(factorX: Double, factorY: Double, anchorX: Double, anchorY: Double)
+    /** Pan by fractions of the plot size (x: positive = finger moved right, y: positive = finger moved down). */
+    fun pan(fractionX: Double, fractionY: Double)
+    fun reset()
+}
+
 /**
- * Line chart with a logarithmic frequency axis. Tap or drag horizontally to
- * place a cursor; the values at the cursor are shown in the legend.
+ * Line chart with a logarithmic frequency axis.
+ * One finger: cursor. Two fingers: pinch to zoom (horizontal and vertical pinch
+ * zoom their own axis) and drag to pan. Double tap: reset the view.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FrequencyPlot(
     series: List<PlotSeries>,
-    minHz: Double,
-    maxHz: Double,
-    range: ClosedFloatingPointRange<Double>,
-    unit: String,
+    xRange: ClosedFloatingPointRange<Double>,
+    yRange: ClosedFloatingPointRange<Double>,
+    cursorHz: Double?,
+    gestures: PlotGestures,
     modifier: Modifier = Modifier,
-    valueLabel: (Double) -> String = { "%.0f".format(it) },
-    cursorValue: (Double) -> String = { "%.1f %s".format(it, unit) },
 ) {
-    var cursorHz by remember(minHz, maxHz) { mutableStateOf<Double?>(null) }
     val textMeasurer = rememberTextMeasurer()
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val axisColor = MaterialTheme.colorScheme.outline
     val labelStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
     val cursorColor = MaterialTheme.colorScheme.primary
+    val currentX by rememberUpdatedState(xRange)
+    val currentGestures by rememberUpdatedState(gestures)
+    val lastTap = remember { longArrayOf(0L) }
 
-    Column(modifier) {
-        val cursor = cursorHz
-        Text(
-            text = if (cursor == null) "Tap the chart for values" else "${PlotMath.formatFrequency(cursor)} Hz",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-            for (s in series) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(s.color))
-                    val value = cursor?.let { valueAt(s, it) }
-                    val text = if (value == null) s.label else "${s.label}: ${if (value.isNaN()) "–" else cursorValue(value)}"
-                    Text(text, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 4.dp))
+    Canvas(
+        modifier
+            .clipToBounds()
+            .pointerInput(Unit) {
+                val left = LEFT_MARGIN.toPx()
+                val bottom = BOTTOM_MARGIN.toPx()
+                fun plotWidth() = (size.width - left).coerceAtLeast(1f)
+                fun plotHeight() = (size.height - bottom).coerceAtLeast(1f)
+                fun frequencyAt(x: Float) = PlotMath.xToFrequency(x - left, currentX.start, currentX.endInclusive, plotWidth())
+
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    currentGestures.cursor(frequencyAt(down.position.x))
+                    var multiTouch = false
+                    var moved = false
+                    var upTime = down.uptimeMillis
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pressed = event.changes.filter { it.pressed }
+                        if (pressed.isEmpty()) {
+                            upTime = event.changes.firstOrNull()?.uptimeMillis ?: upTime
+                            break
+                        }
+                        if (pressed.size >= 2) {
+                            multiTouch = true
+                            pinch(pressed[0], pressed[1], left, plotWidth(), plotHeight(), currentGestures)
+                            event.changes.forEach { it.consume() }
+                        } else if (!multiTouch) {
+                            val c = pressed[0]
+                            if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                            currentGestures.cursor(frequencyAt(c.position.x))
+                            c.consume()
+                        }
+                    }
+                    val isTap = !multiTouch && !moved && upTime - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
+                    if (isTap) {
+                        if (upTime - lastTap[0] < viewConfiguration.doubleTapTimeoutMillis) {
+                            currentGestures.reset()
+                            lastTap[0] = 0L
+                        } else {
+                            lastTap[0] = upTime
+                        }
+                    }
                 }
+            },
+    ) {
+        val left = LEFT_MARGIN.toPx()
+        val bottom = BOTTOM_MARGIN.toPx()
+        val w = size.width - left
+        val h = size.height - bottom
+        if (w <= 0f || h <= 0f) return@Canvas
+        val minHz = xRange.start
+        val maxHz = xRange.endInclusive
+
+        for (v in PlotMath.valueTicks(yRange.start, yRange.endInclusive, target = (h / 40.dp.toPx()).toInt().coerceIn(3, 10))) {
+            val y = PlotMath.valueToY(v, yRange.start, yRange.endInclusive, h)
+            drawLine(gridColor, Offset(left, y), Offset(size.width, y), strokeWidth = 1f)
+            val layout = textMeasurer.measure("%.0f".format(v), labelStyle)
+            drawText(layout, topLeft = Offset(left - layout.size.width - 4.dp.toPx(), (y - layout.size.height / 2f).coerceIn(0f, (h - layout.size.height).coerceAtLeast(0f))))
+        }
+        val ticks = PlotMath.frequencyTicks(minHz, maxHz).let { if (it.size < 3) PlotMath.denseFrequencyTicks(minHz, maxHz) else it }
+        for (f in ticks) {
+            val x = left + PlotMath.frequencyToX(f, minHz, maxHz, w)
+            drawLine(gridColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
+            val layout = textMeasurer.measure(PlotMath.formatFrequency(f), labelStyle)
+            drawText(layout, topLeft = Offset((x - layout.size.width / 2f).coerceIn(left, (size.width - layout.size.width).coerceAtLeast(left)), h + 2.dp.toPx()))
+        }
+        drawLine(axisColor, Offset(left, 0f), Offset(left, h), strokeWidth = 1.5f)
+        drawLine(axisColor, Offset(left, h), Offset(size.width, h), strokeWidth = 1.5f)
+
+        clipRect(left = left, top = 0f, right = size.width, bottom = h) {
+            translate(left = left) {
+                for (s in series) drawSeries(s, minHz, maxHz, yRange, w, h)
             }
         }
-        Canvas(
-            Modifier
-                .fillMaxWidth()
-                .height(260.dp)
-                .clipToBounds()
-                .pointerInput(minHz, maxHz) {
-                    detectTapGestures { pos ->
-                        val plotWidth = size.width - LEFT_MARGIN.toPx()
-                        cursorHz = PlotMath.xToFrequency(pos.x - LEFT_MARGIN.toPx(), minHz, maxHz, plotWidth)
-                    }
-                }
-                .pointerInput(minHz, maxHz) {
-                    detectHorizontalDragGestures { change, _ ->
-                        val plotWidth = size.width - LEFT_MARGIN.toPx()
-                        cursorHz = PlotMath.xToFrequency(change.position.x - LEFT_MARGIN.toPx(), minHz, maxHz, plotWidth)
-                    }
-                },
-        ) {
-            val left = LEFT_MARGIN.toPx()
-            val bottom = BOTTOM_MARGIN.toPx()
-            val w = size.width - left
-            val h = size.height - bottom
-
-            // Grid and labels.
-            for (v in PlotMath.valueTicks(range.start, range.endInclusive)) {
-                val y = PlotMath.valueToY(v, range.start, range.endInclusive, h)
-                drawLine(gridColor, Offset(left, y), Offset(size.width, y), strokeWidth = 1f)
-                val layout = textMeasurer.measure(valueLabel(v), labelStyle)
-                drawText(layout, topLeft = Offset(left - layout.size.width - 4.dp.toPx(), (y - layout.size.height / 2f).coerceIn(0f, h - layout.size.height)))
-            }
-            for (f in PlotMath.frequencyTicks(minHz, maxHz)) {
-                val x = left + PlotMath.frequencyToX(f, minHz, maxHz, w)
-                drawLine(gridColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
-                val layout = textMeasurer.measure(PlotMath.formatFrequency(f), labelStyle)
-                drawText(layout, topLeft = Offset((x - layout.size.width / 2f).coerceIn(left, size.width - layout.size.width), h + 2.dp.toPx()))
-            }
-            drawLine(axisColor, Offset(left, 0f), Offset(left, h), strokeWidth = 1.5f)
-            drawLine(axisColor, Offset(left, h), Offset(size.width, h), strokeWidth = 1.5f)
-
-            clipRect(left = left, top = 0f, right = size.width, bottom = h) {
-                translate(left = left) {
-                    for (s in series) drawSeries(s, minHz, maxHz, range, w, h)
-                }
-            }
-            cursor?.let {
-                val x = left + PlotMath.frequencyToX(it, minHz, maxHz, w)
-                drawLine(cursorColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1.5f)
-            }
+        cursorHz?.takeIf { it in xRange }?.let {
+            val x = left + PlotMath.frequencyToX(it, minHz, maxHz, w)
+            drawLine(cursorColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1.5f)
         }
     }
 }
 
-private fun valueAt(s: PlotSeries, f: Double): Double? {
-    if (s.frequencies.isEmpty() || f < s.frequencies.first() / 1.05 || f > s.frequencies.last() * 1.05) return null
-    val i = PlotMath.nearestIndex(s.frequencies, f)
-    return s.values[i]
+private fun pinch(a: PointerInputChange, b: PointerInputChange, left: Float, width: Float, height: Float, gestures: PlotGestures) {
+    val minSpread = 48f
+    val dxNow = abs(a.position.x - b.position.x)
+    val dxBefore = abs(a.previousPosition.x - b.previousPosition.x)
+    val dyNow = abs(a.position.y - b.position.y)
+    val dyBefore = abs(a.previousPosition.y - b.previousPosition.y)
+    val zoomX = if (dxNow > minSpread && dxBefore > minSpread) (dxNow / dxBefore).toDouble() else 1.0
+    val zoomY = if (dyNow > minSpread && dyBefore > minSpread) (dyNow / dyBefore).toDouble() else 1.0
+    val centroid = (a.position + b.position) / 2f
+    val previousCentroid = (a.previousPosition + b.previousPosition) / 2f
+    if (zoomX != 1.0 || zoomY != 1.0) {
+        gestures.zoom(
+            zoomX,
+            zoomY,
+            ((centroid.x - left) / width).toDouble().coerceIn(0.0, 1.0),
+            (1.0 - centroid.y / height).coerceIn(0.0, 1.0),
+        )
+    }
+    val pan = centroid - previousCentroid
+    if (pan.x != 0f || pan.y != 0f) gestures.pan((pan.x / width).toDouble(), (pan.y / height).toDouble())
 }
 
 private fun DrawScope.drawSeries(
@@ -158,15 +182,17 @@ private fun DrawScope.drawSeries(
 ) {
     val path = Path()
     var penDown = false
+    // Points outside the visible range are kept so lines run to the border when zoomed in; the caller clips.
     for (i in s.frequencies.indices) {
         val f = s.frequencies[i]
         val v = s.values[i]
-        if (!v.isFinite() || f < minHz || f > maxHz) {
+        if (!v.isFinite()) {
             penDown = false
             continue
         }
         // Keep extreme values just outside the plot so lines leave the frame instead of vanishing.
-        val clamped = PlotMath.clamp(v, (range.start - 1.0)..(range.endInclusive + 1.0))
+        val span = range.endInclusive - range.start
+        val clamped = PlotMath.clamp(v, (range.start - span)..(range.endInclusive + span))
         val x = PlotMath.frequencyToX(f, minHz, maxHz, w)
         val y = PlotMath.valueToY(clamped, range.start, range.endInclusive, h)
         if (penDown) path.lineTo(x, y) else path.moveTo(x, y)
@@ -182,5 +208,5 @@ private fun DrawScope.drawSeries(
     )
 }
 
-private val LEFT_MARGIN = 44.dp
+private val LEFT_MARGIN = 36.dp
 private val BOTTOM_MARGIN = 18.dp

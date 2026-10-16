@@ -3,6 +3,7 @@ package de.flkaiser.paanalyzer
 import de.flkaiser.paanalyzer.ui.PlotMath
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class PlotMathTest {
 
@@ -59,5 +60,59 @@ class PlotMathTest {
         assertEquals(1, PlotMath.nearestIndex(grid, 270.0))
         assertEquals(2, PlotMath.nearestIndex(grid, 300.0))
         assertEquals(-1, PlotMath.nearestIndex(DoubleArray(0), 1.0))
+    }
+
+    @Test
+    fun autoRangeIgnoresSilenceAndKeepsSpanLimits() {
+        val r = PlotMath.autoRange(listOf(doubleArrayOf(-12.0, -48.0, -300.0, Double.NaN)))
+        assertEquals(0.0, r.endInclusive)
+        assertEquals(-60.0, r.start)
+        val narrow = PlotMath.autoRange(listOf(doubleArrayOf(-5.0, -6.0)))
+        assertEquals(40.0, narrow.endInclusive - narrow.start)
+        assertEquals(-40.0..0.0, PlotMath.autoRange(emptyList()))
+    }
+
+    @Test
+    fun zoomLogKeepsAnchorFixed() {
+        val full = 20.0..20_000.0
+        val zoomed = PlotMath.zoomLog(full, factor = 2.0, anchor = 0.5, limit = full)
+        // Geometric centre stays, span halves (in octaves).
+        assertEquals(632.4555, kotlin.math.sqrt(zoomed.start * zoomed.endInclusive), 0.01)
+        assertEquals(kotlin.math.sqrt(1_000.0), zoomed.endInclusive / zoomed.start, 1e-6)
+        // Cannot zoom out beyond the data or in beyond the minimum span.
+        val out = PlotMath.zoomLog(zoomed, factor = 0.1, anchor = 0.5, limit = full)
+        assertEquals(20.0, out.start, 1e-6)
+        assertEquals(20_000.0, out.endInclusive, 1e-6)
+        val tight = PlotMath.zoomLog(full, factor = 1e6, anchor = 0.0, limit = full)
+        assertEquals(20.0, tight.start, 1e-9)
+        assertEquals(1.5, tight.endInclusive / tight.start, 1e-9)
+    }
+
+    @Test
+    fun panLogStaysInsideLimits() {
+        val full = 20.0..20_000.0
+        val view = 200.0..2_000.0
+        val moved = PlotMath.panLog(view, fraction = 1.0, limit = full)
+        assertEquals(20.0, moved.start, 1e-9)
+        assertEquals(200.0, moved.endInclusive, 1e-9)
+        val far = PlotMath.panLog(view, fraction = -10.0, limit = full)
+        assertEquals(20_000.0, far.endInclusive, 1e-9)
+        assertEquals(2_000.0, far.start, 1e-6)
+    }
+
+    @Test
+    fun linearZoomAndPan() {
+        val limit = -250.0..100.0
+        val zoomed = PlotMath.zoomLinear(-60.0..0.0, factor = 2.0, anchor = 1.0, limit = limit)
+        assertEquals(-30.0..0.0, zoomed)
+        assertEquals(-45.0..-15.0, PlotMath.panLinear(zoomed, fraction = -0.5, limit = limit))
+        assertEquals(6.0, PlotMath.zoomLinear(-60.0..0.0, factor = 1e3, anchor = 0.5, limit = limit).let { it.endInclusive - it.start }, 1e-9)
+        assertEquals(70.0..100.0, PlotMath.panLinear(zoomed, fraction = 100.0, limit = limit))
+    }
+
+    @Test
+    fun denseTicksForNarrowRanges() {
+        assertEquals(listOf(200.0, 300.0, 400.0, 500.0), PlotMath.denseFrequencyTicks(150.0, 550.0))
+        assertTrue(PlotMath.denseFrequencyTicks(20.0, 20_000.0).size <= 10)
     }
 }

@@ -3,6 +3,7 @@ package de.flkaiser.paanalyzer.settings
 import de.flkaiser.paanalyzer.audio.OutputChannel
 import de.flkaiser.paanalyzer.dsp.Smoothing
 import de.flkaiser.paanalyzer.dsp.SweepSettings
+import de.flkaiser.paanalyzer.dsp.SweepSettingsCodec
 import java.math.BigDecimal
 
 data class AppSettings(
@@ -94,44 +95,12 @@ data class ParseResult(val settings: AppSettings?, val errors: List<String>)
 /** Converts settings to and from string key/value pairs for persistence. */
 object SettingsCodec {
 
-    fun encode(settings: AppSettings): Map<String, String> {
-        val s = settings.sweep
-        return mapOf(
-            "startHz" to s.startHz.toString(),
-            "endHz" to s.endHz.toString(),
-            "durationSec" to s.durationSec.toString(),
-            "levelDbfs" to s.levelDbfs.toString(),
-            "sampleRate" to s.sampleRate.toString(),
-            "averages" to s.averages.toString(),
-            "preSilenceSec" to s.preSilenceSec.toString(),
-            "postSilenceSec" to s.postSilenceSec.toString(),
-            "irWindowMs" to s.irWindowMs.toString(),
-            "maxHarmonic" to s.maxHarmonic.toString(),
-            "rubBuzzStartOrder" to s.rubBuzzStartOrder.toString(),
-            "smoothing" to s.smoothing.name,
-            "channel" to settings.channel.name,
-        )
-    }
+    fun encode(settings: AppSettings): Map<String, String> =
+        SweepSettingsCodec.encode(settings.sweep) + ("channel" to settings.channel.name)
 
-    /** Missing or unreadable values fall back to the defaults; invalid combinations reset everything. */
+    /** Missing or unreadable values fall back to the defaults; invalid combinations reset the sweep. */
     fun decode(values: Map<String, String>): AppSettings {
-        val d = SweepSettings()
-        fun double(key: String, default: Double) = values[key]?.toDoubleOrNull() ?: default
-        fun int(key: String, default: Int) = values[key]?.toIntOrNull() ?: default
-        val sweep = SweepSettings(
-            startHz = double("startHz", d.startHz),
-            endHz = double("endHz", d.endHz),
-            durationSec = double("durationSec", d.durationSec),
-            levelDbfs = double("levelDbfs", d.levelDbfs),
-            sampleRate = int("sampleRate", d.sampleRate),
-            averages = int("averages", d.averages),
-            preSilenceSec = double("preSilenceSec", d.preSilenceSec),
-            postSilenceSec = double("postSilenceSec", d.postSilenceSec),
-            irWindowMs = double("irWindowMs", d.irWindowMs),
-            maxHarmonic = int("maxHarmonic", d.maxHarmonic),
-            rubBuzzStartOrder = int("rubBuzzStartOrder", d.rubBuzzStartOrder),
-            smoothing = Smoothing.entries.firstOrNull { it.name == values["smoothing"] } ?: d.smoothing,
-        )
+        val sweep = SweepSettingsCodec.decode(values)
         val channel = OutputChannel.entries.firstOrNull { it.name == values["channel"] } ?: OutputChannel.BOTH
         return if (sweep.validate().isEmpty()) AppSettings(sweep, channel) else AppSettings(channel = channel)
     }

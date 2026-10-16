@@ -1,19 +1,25 @@
 # PA Analyzer
 
-Android app for measuring a PA system with your phone: it plays an exponential sine sweep over Bluetooth, records it with the microphone and shows
+Android app for measuring a PA system with your phone: it plays an exponential sine sweep over Bluetooth, records it with the microphone and shows, in one chart,
 
 - **Fundamental**: frequency response of the whole chain (Bluetooth, amp, speakers, room, mic)
-- **Distortion**: THD and the individual harmonics H2…H10, relative to the fundamental
-- **Rub & buzz**: energy far above the excitation frequency (default: above the 10th harmonic), with a noise-floor reference, to find rattles, rubbing voice coils and loose parts
-
-Results can be shared as CSV.
+- **Distortion**: THD and the individual harmonics H2…H10
+- **Rub & buzz**: energy far above the excitation frequency (default: above the 10th harmonic), RMS and peak, with a noise-floor reference, to find rattles, rubbing voice coils and loose parts
 
 ## Using it
 
-1. Connect the phone to the PA's Bluetooth receiver. The app picks the Bluetooth output automatically; you can choose another output or a USB measurement mic on the Measure tab.
+1. Connect the phone to the PA's Bluetooth receiver. The app picks the Bluetooth output automatically; choose another output, a USB measurement mic or one stereo channel under **Settings → Devices**.
 2. Turn the PA **down** first. Place the phone where you want to measure (on axis, ~1 m from the speaker is a good start).
-3. Press **Start measurement**. The sweep plays, then the analysis runs on the phone.
+3. Press **Start measurement** on the **Measure** page. The sweep plays, the analysis runs on the phone, and the **Results** page opens.
 4. Raise the level until the impulse-response signal-to-noise ratio is comfortably above 40 dB, without input clipping (the app warns about both).
+
+### Results
+
+- All curves share one dB axis: distortion and rub & buzz are drawn at their absolute level (fundamental + relative level), like in a spectrum. Tap the chips below the chart to show or hide curves; by default only the fundamental and THD are shown.
+- Tap or drag on the chart for a cursor. The chips then show the values at the cursor: the fundamental in dB, distortion in dB and % relative to the fundamental, rub & buzz in dB relative to the fundamental.
+- Pinch horizontally to zoom the frequency axis, vertically to zoom the level axis; drag with two fingers to pan; double-tap to reset.
+- Turn the phone sideways to view curves: the system bars hide, the navigation moves to a slim side rail and the curve list to a side panel you can hide.
+- **Save** keeps the measurement on the phone; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV, which spreadsheets can read and the app can import again (e.g. on another phone).
 
 Bluetooth latency doesn't matter: the app finds the sweep in the recording itself and reports the measured delay.
 

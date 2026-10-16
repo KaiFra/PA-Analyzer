@@ -3,6 +3,7 @@
 package de.flkaiser.paanalyzer.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -12,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -19,10 +22,16 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.OutputChannel
 import de.flkaiser.paanalyzer.dsp.Smoothing
 import de.flkaiser.paanalyzer.dsp.SweepSettings
@@ -41,6 +50,22 @@ fun SettingsScreen(state: UiState, viewModel: MeasurementViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         for (error in state.formErrors) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+
+        Section("Devices")
+        DevicePicker("Output", state.outputs, state.selectedOutput, enabled, viewModel::selectOutput)
+        if (state.selectedOutput?.isBluetooth != true) {
+            Text(
+                "No Bluetooth output selected. Connect the PA's Bluetooth receiver, or measure through the chosen output.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        DevicePicker("Input", state.inputs, state.selectedInput, enabled, viewModel::selectInput)
+        Hint(
+            "Microphone processing: ${state.micSource}. Phone microphones are not calibrated; compare measurements " +
+                "made with the same phone and position, or use a USB measurement microphone.",
+        )
+        Choice("Bluetooth channel", OutputChannel.entries, form.channel, { it.label }, enabled) { update(form.copy(channel = it)) }
 
         Section("Sweep")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -75,10 +100,37 @@ fun SettingsScreen(state: UiState, viewModel: MeasurementViewModel) {
         Choice("Smoothing", Smoothing.entries, form.smoothing, { it.label }, enabled) { update(form.copy(smoothing = it)) }
         Hint("A short IR window (e.g. 10 ms) removes room reflections but loses resolution below about 1 / window length.")
 
-        Section("Output")
-        Choice("Bluetooth channel", OutputChannel.entries, form.channel, { it.label }, enabled) { update(form.copy(channel = it)) }
-
         OutlinedButton(onClick = viewModel::resetSettings, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("Reset to defaults") }
+    }
+}
+
+@Composable
+private fun DevicePicker(
+    label: String,
+    options: List<DeviceOption>,
+    selected: DeviceOption?,
+    enabled: Boolean,
+    onSelect: (DeviceOption) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Box {
+            OutlinedButton(onClick = { expanded = true }, enabled = enabled && options.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                Text(selected?.label ?: "System default", maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                for (option in options) {
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        onClick = {
+                            expanded = false
+                            onSelect(option)
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
