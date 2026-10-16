@@ -233,12 +233,14 @@ class EqDesignerTest {
     @Test
     fun targetCurveFollowsTiltAndBassBoost() {
         val s = EqSettings(tiltDbPerOctave = -1.0, bassBoostDb = 8.0, bassBoostHz = 80.0)
-        assertEquals(0.0, s.targetDb(1_000.0), 0.01)
-        assertEquals(1.0, s.targetDb(500.0), 0.01)
-        assertEquals(-2.0, s.targetDb(4_000.0), 0.01)
-        // Half the bass boost at the corner frequency, nearly all of it two octaves below.
-        assertEquals(4.0 + 1.0 * log2(1_000.0 / 80.0), s.targetDb(80.0), 0.01)
-        assertTrue(s.targetDb(20.0) - 1.0 * log2(1_000.0 / 20.0) > 7.5)
+        assertEquals(0.0, EqSettings(tiltDbPerOctave = -1.0).targetDb(1_000.0), 1e-9)
+        assertEquals(1.0, EqSettings(tiltDbPerOctave = -1.0).targetDb(500.0), 1e-9)
+        assertEquals(-2.0, EqSettings(tiltDbPerOctave = -1.0).targetDb(4_000.0), 1e-9)
+        // The bass boost adds to the tilt: half of it at the corner frequency, nearly all of it two octaves below,
+        // hardly anything in the mid band.
+        assertEquals(4.0 + log2(1_000.0 / 80.0), s.targetDb(80.0), 1e-9)
+        assertTrue(s.targetDb(20.0) - log2(1_000.0 / 20.0) > 7.5)
+        assertTrue(s.targetDb(1_000.0) in 0.0..0.1)
         assertEquals(null, s.preset)
         assertEquals(EqTarget.LIVE, EqTarget.LIVE.applyTo(s).preset)
         assertEquals(EqTarget.FLAT, EqSettings().preset)
