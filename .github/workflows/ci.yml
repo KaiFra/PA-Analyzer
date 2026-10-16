@@ -72,6 +72,30 @@ jobs:
           done
           exit $status
 
+      - name: Test and lint summary
+        if: always()
+        run: |
+          python3 - <<'EOF'
+          import glob, os, xml.etree.ElementTree as ET
+          tests = failures = skipped = 0
+          for f in glob.glob("*/build/test-results/**/*.xml", recursive=True):
+              s = ET.parse(f).getroot()
+              tests += int(s.get("tests", 0)); skipped += int(s.get("skipped", 0))
+              failures += int(s.get("failures", 0)) + int(s.get("errors", 0))
+          lint = {}
+          for f in glob.glob("app/build/reports/lint-results-*.xml"):
+              for issue in ET.parse(f).getroot().iter("issue"):
+                  key = issue.get("severity")
+                  lint[key] = lint.get(key, 0) + 1
+                  loc = issue.find("location")
+                  where = f"file={os.path.relpath(loc.get('file'))},line={loc.get('line', 1)}," if loc is not None else ""
+                  print(f"::warning {where}title=Lint {issue.get('id')}::{issue.get('message')}")
+          line = f"Unit tests: {tests} run, {failures} failed, {skipped} skipped. Lint: " + (", ".join(f"{v} {k.lower()}" for k, v in sorted(lint.items())) or "no issues")
+          print(f"::notice title=Summary::{line}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write(f"### {line}\n")
+          EOF
+
       - uses: actions/upload-artifact@v4
         with:
           name: apks

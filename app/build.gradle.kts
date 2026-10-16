@@ -67,6 +67,7 @@ android {
     lint {
         warningsAsErrors = false
         abortOnError = true
+        xmlReport = true
         // Dependency update checks need network access and say nothing about correctness.
         disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion")
     }
