@@ -1,5 +1,6 @@
 package de.flkaiser.paanalyzer.audio
 
+import android.annotation.SuppressLint
 import android.media.AudioDeviceInfo
 
 /** An audio device as shown in the UI. Plain data so the selection logic is unit-testable. */
@@ -8,6 +9,9 @@ data class DeviceOption(val id: Int, val type: Int, val name: String) {
     val label: String get() = "$name (${typeLabel(type)})"
 }
 
+// Newer type constants are only compared against device types; on older Android versions
+// they simply never match, so using them below their API level is safe.
+@SuppressLint("InlinedApi")
 private val BLUETOOTH_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
     AudioDeviceInfo.TYPE_BLE_HEADSET,
@@ -16,6 +20,7 @@ private val BLUETOOTH_OUTPUT_TYPES = setOf(
 )
 
 /** Outputs that make no sense for a PA measurement. SCO would drag the mic onto the headset. */
+@SuppressLint("InlinedApi")
 private val HIDDEN_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
@@ -24,6 +29,7 @@ private val HIDDEN_OUTPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_FM,
 )
 
+@SuppressLint("InlinedApi")
 private val HIDDEN_INPUT_TYPES = setOf(
     AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
     AudioDeviceInfo.TYPE_TELEPHONY,
@@ -58,6 +64,7 @@ object DeviceSelection {
     }
 }
 
+@SuppressLint("InlinedApi")
 fun typeLabel(type: Int): String = when (type) {
     AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> "Bluetooth"
     AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER, AudioDeviceInfo.TYPE_BLE_BROADCAST -> "Bluetooth LE"

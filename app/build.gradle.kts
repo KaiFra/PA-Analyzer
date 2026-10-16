@@ -70,6 +70,8 @@ android {
         xmlReport = true
         // Dependency update checks need network access and say nothing about correctness.
         disable += setOf("GradleDependency", "NewerVersionAvailable", "AndroidGradlePluginVersion")
+        // arm64-only is intentional, so ChromeOS x86_64 support is not wanted.
+        disable += "ChromeOsAbiSupport"
     }
 }
 
