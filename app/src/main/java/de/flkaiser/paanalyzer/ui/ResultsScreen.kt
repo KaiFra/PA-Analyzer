@@ -34,8 +34,9 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.InputChip
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -105,10 +106,12 @@ fun ResultsScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
         LibraryDialog(
             entries = state.library,
             currentId = current?.savedId,
+            hasCurrent = current != null,
             onOpen = { showLibrary = false; viewModel.loadSaved(it) },
             onRename = viewModel::renameSaved,
             onDelete = viewModel::deleteSaved,
             onAverage = { showLibrary = false; viewModel.averageSaved(it) },
+            onCompare = { showLibrary = false; viewModel.compareSaved(it) },
             onImport = actions.onImport,
             onDismiss = { showLibrary = false },
         )
@@ -162,12 +165,24 @@ private fun rememberChartState(current: CurrentMeasurement): ChartState {
     return remember(current.createdAtMillis, s.startHz, s.endHz) { ChartState(s.startHz..s.endHz) }
 }
 
+/** Curves of the compared measurements that follow the visibility of the current fundamental and THD. */
+private fun comparisonCurves(current: CurrentMeasurement, state: UiState): List<Pair<Comparison, Curve>> =
+    state.comparisons.flatMap { c ->
+        Compare.curves(c, current.result, state.alignComparisons)
+            .filter { (it.kind == CurveKind.FUNDAMENTAL && Curves.FUNDAMENTAL in state.visibleCurves) || (it.kind == CurveKind.DISTORTION && Curves.THD in state.visibleCurves) }
+            .map { c to it }
+    }
+
 @Composable
-private fun Chart(current: CurrentMeasurement, visible: Set<String>, chart: ChartState, modifier: Modifier) {
-    val shown = current.curves.filter { it.id in visible }
-    val autoY = { PlotMath.autoRange(shown.map { it.absoluteDb }) }
+private fun Chart(current: CurrentMeasurement, state: UiState, chart: ChartState, modifier: Modifier) {
+    val shown = current.curves.filter { it.id in state.visibleCurves }
+    val overlays = comparisonCurves(current, state)
+    val autoY = { PlotMath.autoRange(shown.map { it.absoluteDb } + overlays.map { it.second.absoluteDb }) }
     FrequencyPlot(
-        series = shown.map { curve ->
+        // Compared measurements first, so the current one is drawn on top.
+        series = overlays.map { (c, curve) ->
+            PlotSeries(curve.frequencies, curve.absoluteDb, Compare.color(c), dashed = curve.kind == CurveKind.DISTORTION, width = 2f)
+        } + shown.map { curve ->
             val style = curveStyle(curve.id)
             PlotSeries(curve.frequencies, curve.absoluteDb, style.color, style.dashed, style.width)
         },
@@ -184,13 +199,14 @@ private fun PortraitResults(current: CurrentMeasurement, state: UiState, viewMod
     val chart = rememberChartState(current)
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
         ResultHeader(current, viewModel, actions, compact = false, reanalyzing = state.reanalyzing)
-        Chart(current, state.visibleCurves, chart, Modifier.fillMaxWidth().weight(1f))
+        Chart(current, state, chart, Modifier.fillMaxWidth().weight(1f))
         CursorLine(chart)
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp).verticalScroll(rememberScrollState()).padding(bottom = 4.dp),
         ) {
             for (curve in current.curves) CurveChip(curve, curve.id in state.visibleCurves, chart.cursorHz) { viewModel.toggleCurve(curve.id) }
+            ComparisonChips(current, state, chart, viewModel)
         }
     }
 }
@@ -201,7 +217,7 @@ private fun LandscapeResults(current: CurrentMeasurement, state: UiState, viewMo
     var panelOpen by rememberSaveable { mutableStateOf(true) }
     Row(Modifier.fillMaxSize()) {
         Box(Modifier.weight(1f).fillMaxHeight().padding(start = 4.dp, top = 4.dp, bottom = 4.dp)) {
-            Chart(current, state.visibleCurves, chart, Modifier.fillMaxSize())
+            Chart(current, state, chart, Modifier.fillMaxSize())
             if (!panelOpen) {
                 FilledTonalButton(onClick = { panelOpen = true }, modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)) {
                     Text("Curves")
@@ -218,6 +234,7 @@ private fun LandscapeResults(current: CurrentMeasurement, state: UiState, viewMo
                 for (curve in current.curves) {
                     CurveChip(curve, curve.id in state.visibleCurves, chart.cursorHz, Modifier.fillMaxWidth()) { viewModel.toggleCurve(curve.id) }
                 }
+                ComparisonChips(current, state, chart, viewModel, Modifier.fillMaxWidth())
             }
         }
     }
@@ -307,6 +324,31 @@ private fun CurveChip(curve: Curve, visible: Boolean, cursorHz: Double?, modifie
     )
 }
 
+/** One chip per compared measurement (tap to remove) and the level-alignment switch. */
+@Composable
+private fun ComparisonChips(current: CurrentMeasurement, state: UiState, chart: ChartState, viewModel: AppActions, modifier: Modifier = Modifier) {
+    if (state.comparisons.isEmpty()) return
+    val fundamental = current.curves.firstOrNull { it.id == Curves.FUNDAMENTAL }
+    for (c in state.comparisons) {
+        val curve = Compare.curves(c, current.result, state.alignComparisons).first()
+        val value = chart.cursorHz?.let { Compare.readout(curve, fundamental, it) }
+        InputChip(
+            selected = false,
+            onClick = { viewModel.removeComparison(c.id) },
+            leadingIcon = { Box(Modifier.size(10.dp).clip(CircleShape).background(Compare.color(c))) },
+            label = { Text(if (value == null) c.name else "${c.name}: $value", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Remove from comparison", Modifier.size(16.dp)) },
+            modifier = modifier,
+        )
+    }
+    FilterChip(
+        selected = state.alignComparisons,
+        onClick = { viewModel.alignComparisons(!state.alignComparisons) },
+        label = { Text("Align levels") },
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun EmptyResults(state: UiState, viewModel: AppActions, actions: ResultActions) {
     Column(
@@ -332,10 +374,12 @@ private fun EmptyResults(state: UiState, viewModel: AppActions, actions: ResultA
 private fun LibraryDialog(
     entries: List<SavedEntry>,
     currentId: String?,
+    hasCurrent: Boolean,
     onOpen: (String) -> Unit,
     onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit,
     onAverage: (List<String>) -> Unit,
+    onCompare: (List<String>) -> Unit,
     onImport: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -381,9 +425,9 @@ private fun LibraryDialog(
                     }
                 }
                 val ticked = selected.filter { id -> entries.any { it.id == id } }
-                if (entries.size >= 2) {
+                if (entries.isNotEmpty()) {
                     Text(
-                        if (ticked.isEmpty()) "Tick measurements from several positions to average them."
+                        if (ticked.isEmpty()) "Tick measurements to compare them with the open one, or to average several positions."
                         else "${ticked.size} ticked",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -391,7 +435,10 @@ private fun LibraryDialog(
                     )
                 }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-                    if (ticked.size >= 2) TextButton(onClick = { onAverage(ticked) }) { Text("Average ${ticked.size}") }
+                    if (ticked.isNotEmpty() && hasCurrent || ticked.size >= 2) {
+                        TextButton(onClick = { onCompare(ticked) }) { Text("Compare") }
+                    }
+                    if (ticked.size >= 2) TextButton(onClick = { onAverage(ticked) }) { Text("Average") }
                     TextButton(onClick = onImport) { Text("Import CSV") }
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }

@@ -12,6 +12,8 @@ import de.flkaiser.paanalyzer.dsp.EqSettings
 import de.flkaiser.paanalyzer.settings.AppSettings
 import de.flkaiser.paanalyzer.settings.SettingsForm
 import de.flkaiser.paanalyzer.ui.AppActions
+import de.flkaiser.paanalyzer.ui.Comparison
+import de.flkaiser.paanalyzer.dsp.MeasurementResult
 import de.flkaiser.paanalyzer.ui.AppScaffold
 import de.flkaiser.paanalyzer.ui.ExportData
 import de.flkaiser.paanalyzer.ui.CurrentMeasurement
@@ -66,6 +68,21 @@ class ScreenshotTest {
 
     @Test
     @Config(qualifiers = "w400dp-h820dp-xhdpi")
+    fun compare() = capture("compare", dark = false) {
+        // The demo speaker before EQ (open) and after the suggested EQ (compared).
+        val r = DemoMeasurement.result
+        val eq = EqDesigner.design(r.frequencies, r.fundamentalDb, EqSettings())
+        val eqDb = DoubleArray(r.frequencies.size) { i -> Curves.interpolateLog(eq.frequencies, eq.eqDb, r.frequencies[i]).takeIf { it.isFinite() } ?: 0.0 }
+        val after = MeasurementResult(
+            r.settings, r.frequencies, DoubleArray(r.frequencies.size) { r.fundamentalDb[it] + eqDb[it] },
+            r.thdDb, r.harmonics, r.rubBuzz, r.delayMs, r.inputPeakDbfs, r.irSnrDb, r.warnings,
+        )
+        val s = state(Page.RESULTS).copy(comparisons = listOf(Comparison("m-2.csv", "Main PA – after EQ", after, 0)))
+        AppScaffold(s, NoActions)
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h820dp-xhdpi")
     fun eq() = capture("eq", dark = false) { AppScaffold(state(Page.EQ), NoActions) }
 
     @Test
@@ -99,6 +116,9 @@ class ScreenshotTest {
         override fun renameSaved(id: String, name: String) {}
         override fun deleteSaved(id: String) {}
         override fun averageSaved(ids: List<String>) {}
+        override fun compareSaved(ids: List<String>) {}
+        override fun removeComparison(id: String) {}
+        override fun alignComparisons(align: Boolean) {}
         override fun importFiles(uris: List<Uri>) {}
         override fun reanalyze(analysis: AnalysisSettings) {}
         override fun updateEqSettings(settings: EqSettings) {}

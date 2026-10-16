@@ -25,6 +25,13 @@ interface AppActions {
 
     /** Averages saved measurements from several positions into a new saved measurement and opens it. */
     fun averageSaved(ids: List<String>)
+
+    /** Draws saved measurements on top of the current one (replaces the previous comparison). */
+    fun compareSaved(ids: List<String>)
+    fun removeComparison(id: String)
+
+    /** Shifts compared measurements to the current one's mid-band level. */
+    fun alignComparisons(align: Boolean)
     /** Imports a measurement CSV, optionally together with its WAV recording. */
     fun importFiles(uris: List<Uri>)
 

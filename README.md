@@ -9,6 +9,7 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 
 <p>
   <img src="docs/screenshots/results-portrait.png" width="200" alt="Results: fundamental and THD">
+  <img src="docs/screenshots/compare.png" width="200" alt="Comparing before and after EQ">
   <img src="docs/screenshots/eq.png" width="200" alt="EQ suggestion">
   <img src="docs/screenshots/measure.png" width="200" alt="Measure page">
   <img src="docs/screenshots/settings.png" width="200" alt="Settings page">
@@ -33,6 +34,7 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - Pinch horizontally to zoom the frequency axis, vertically to zoom the level axis; drag with two fingers to pan; double-tap to reset.
 - Turn the phone sideways to view curves: the system bars hide, the navigation moves to a slim side rail and the curve list to a side panel you can hide.
 - The wrench button changes the **analysis settings after the measurement**: smoothing, IR window, number of harmonics and rub & buzz start order. The raw recording is kept with every measurement, so it is evaluated again without measuring again (sweep settings are part of the recording and stay fixed).
+- **Compare**: tick saved measurements in the list and choose **Compare** to draw their fundamental (and THD, when shown) on top of the open measurement, e.g. before/after EQ, left/right or two venues. The chips show each one's level at the cursor and the difference to the open measurement; tap a chip to remove it. **Align levels** shifts them to the open measurement's level at 200 Hz – 2 kHz.
 - **Average several positions**: measure 3–5 spots in the audience area and save each, then tick them in the list of saved measurements and choose **Average**. The positions are aligned in level at 200 Hz – 2 kHz and power-averaged (like REW's RMS average): dips from room reflections at one spot are filled by the others, while resonances of the speaker stay. The average is saved as a new measurement, so the EQ page can use it.
 - **Save** keeps the measurement on the phone, together with its recording; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV (readable by spreadsheets) plus the recording as 32-bit float WAV (e.g. for Audacity or REW). Import both files together to get a fully re-analysable copy, for example on another phone.
 

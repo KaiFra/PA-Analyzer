@@ -79,7 +79,7 @@ object PositionAverage {
     }
 
     /** Median level in the mid band (whole range if the mid band has no data). */
-    internal fun midLevel(frequencies: DoubleArray, db: DoubleArray): Double {
+    fun midLevel(frequencies: DoubleArray, db: DoubleArray): Double {
         val mid = frequencies.indices.filter { frequencies[it] in ALIGN_FROM_HZ..ALIGN_TO_HZ && db[it].isFinite() }
             .ifEmpty { frequencies.indices.filter { db[it].isFinite() } }
         if (mid.isEmpty()) return 0.0

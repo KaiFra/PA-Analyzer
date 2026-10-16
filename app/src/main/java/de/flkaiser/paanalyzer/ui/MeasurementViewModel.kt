@@ -81,6 +81,9 @@ data class UiState(
     val current: CurrentMeasurement? = null,
     val library: List<SavedEntry> = emptyList(),
     val visibleCurves: Set<String> = Curves.DEFAULT_VISIBLE,
+    /** Saved measurements drawn on top of the current one. */
+    val comparisons: List<Comparison> = emptyList(),
+    val alignComparisons: Boolean = false,
     val eqSettings: EqSettings = EqSettings(),
     /** EQ suggestion for the current measurement, recomputed when it or [eqSettings] change. */
     val eqSuggestion: EqSuggestion? = null,
@@ -282,7 +285,12 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     override fun deleteSaved(id: String) = launchIo("Could not delete the measurement") {
         repository.delete(id)
         // A deleted measurement stays on screen, but is no longer saved.
-        _state.update { s -> s.copy(current = s.current?.let { if (it.savedId == id) it.copy(savedId = null) else it }) }
+        _state.update { s ->
+            s.copy(
+                current = s.current?.let { if (it.savedId == id) it.copy(savedId = null) else it },
+                comparisons = s.comparisons.filter { it.id != id },
+            )
+        }
         refreshLibrary()
     }
 
@@ -299,6 +307,29 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         }
         refreshLibrary()
     }
+
+    override fun compareSaved(ids: List<String>) = launchIo("Could not open the measurements to compare") {
+        if (ids.isEmpty()) return@launchIo
+        // Without an open measurement, the first ticked one is opened and the others are compared with it.
+        if (_state.value.current == null) {
+            val first = ids.first()
+            val doc = withContext(Dispatchers.IO) { repository.load(first) }
+            val recording = runCatching { repository.loadRecording(first) }.getOrNull()
+            show(doc, first, recording)
+        }
+        val currentId = _state.value.current?.savedId
+        val chosen = ids.filter { it != currentId }.take(Compare.MAX)
+        val docs = withContext(Dispatchers.IO) { chosen.map { it to repository.load(it) } }
+        val comparisons = docs.mapIndexed { i, (id, doc) -> Comparison(id, doc.name.ifBlank { defaultName(doc.createdAtMillis) }, doc.result, i) }
+        _state.update { it.copy(comparisons = comparisons, page = Page.RESULTS) }
+        if (ids.size > chosen.size + (if (currentId in ids) 1 else 0)) {
+            _state.update { it.copy(message = "At most ${Compare.MAX} measurements can be compared at once.") }
+        }
+    }
+
+    override fun removeComparison(id: String) = _state.update { s -> s.copy(comparisons = s.comparisons.filter { it.id != id }) }
+
+    override fun alignComparisons(align: Boolean) = _state.update { it.copy(alignComparisons = align) }
 
     override fun importFiles(uris: List<Uri>) = launchIo("Could not import the file") {
         val app = getApplication<Application>()
@@ -363,6 +394,8 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             it.copy(
                 current = CurrentMeasurement(doc.result, doc.name.ifBlank { defaultName(doc.createdAtMillis) }, doc.createdAtMillis, id, recording),
                 page = Page.RESULTS,
+                // The opened measurement is no longer drawn as a comparison to itself.
+                comparisons = it.comparisons.filter { c -> c.id != id },
             )
         }
     }
