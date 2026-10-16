@@ -33,7 +33,8 @@ android {
                 storeFile = file(keystoreFile)
                 storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                // Optional: PKCS12 keystores use the keystore password for the key as well.
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")?.takeIf { it.isNotEmpty() } ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
             }
         }
     }

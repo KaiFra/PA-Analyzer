@@ -90,6 +90,6 @@ Release signing uses these repository secrets; the build job stops with a specif
 | `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
 | `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
 | `ANDROID_KEY_ALIAS` | Key alias |
-| `ANDROID_KEY_PASSWORD` | Key password |
+| `ANDROID_KEY_PASSWORD` | Optional: only if the key has its own password (older JKS keystores). Otherwise the keystore password is used. |
 
 Pushing a tag like `v0.1.0` also publishes a GitHub release with the signed APK; the tag becomes the version name.

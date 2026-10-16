@@ -4,8 +4,14 @@
 set -uo pipefail
 target="$1"
 
+# ANDROID_KEY_PASSWORD is optional: PKCS12 keystores (the default) use the keystore password for the key.
+if [ -z "${ANDROID_KEY_PASSWORD:-}" ]; then
+  ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
+  key_password_note=" (key password = keystore password)"
+fi
+
 missing=""
-for name in KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+for name in KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS; do
   [ -z "${!name:-}" ] && missing="$missing $name"
 done
 if [ -n "$missing" ]; then
@@ -36,9 +42,13 @@ fi
 # Generating a certificate request needs the private key, so it fails with a wrong key password.
 if ! keytool -certreq -keystore "$target" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" \
      -keypass "$ANDROID_KEY_PASSWORD" -file /dev/null > /dev/null 2>&1; then
-  echo "::error title=Signing::ANDROID_KEY_PASSWORD is wrong for alias given in ANDROID_KEY_ALIAS. (For PKCS12 keystores the key password is the keystore password.)"
+  if [ -n "${key_password_note:-}" ]; then
+    echo "::error title=Signing::The key has its own password. Add it as the ANDROID_KEY_PASSWORD secret."
+  else
+    echo "::error title=Signing::ANDROID_KEY_PASSWORD is wrong for the alias in ANDROID_KEY_ALIAS. Remove the secret if the key uses the keystore password."
+  fi
   exit 1
 fi
 
-echo "::notice title=Signing::Keystore OK ($size bytes, alias found, passwords correct)."
+echo "::notice title=Signing::Keystore OK ($size bytes, alias found, passwords correct${key_password_note:-})."
 echo "file=$target" >> "$GITHUB_OUTPUT"
