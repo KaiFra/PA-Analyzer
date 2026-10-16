@@ -6,10 +6,19 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Build this existing tag (e.g. v0.1.0) and attach the APK to its GitHub release"
+        required: false
+        default: ""
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ inputs.release_tag || github.ref }}
   cancel-in-progress: true
+
+env:
+  # Tag to release: from a pushed v* tag, or from the manual run input.
+  RELEASE_TAG: ${{ inputs.release_tag || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '' }}
 
 permissions:
   contents: write
@@ -21,6 +30,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: actions/setup-java@v5
         with:
@@ -98,6 +109,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: actions/setup-java@v5
         with:
@@ -124,8 +137,9 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           VERSION_CODE: ${{ github.run_number }}
-          VERSION_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          VERSION_NAME: ${{ env.RELEASE_TAG }}
         run: |
+          export VERSION_NAME="${VERSION_NAME#v}"
           ./gradlew --console=plain :app:assembleRelease 2>&1 | tee -a gradle.log
           version="${VERSION_NAME:-0.1.0-${GITHUB_RUN_NUMBER}}"
           mkdir -p dist
@@ -154,8 +168,15 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
 
+      # Uploads to the release if one already exists for the tag (e.g. created on GitHub), otherwise creates it.
       - name: Publish GitHub release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.RELEASE_TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/*.apk --generate-notes
+        run: |
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" dist/*.apk --clobber
+          else
+            gh release create "$RELEASE_TAG" dist/*.apk --verify-tag --generate-notes
+          fi
+          echo "::notice title=Release::$(ls dist/*.apk | xargs -n1 basename) attached to $RELEASE_TAG"
