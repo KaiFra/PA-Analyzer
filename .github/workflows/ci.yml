@@ -96,13 +96,13 @@ jobs:
               out.write(f"### {line}\n")
           EOF
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: apks
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: reports
