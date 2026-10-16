@@ -98,6 +98,7 @@ class ScreenshotTest {
         override fun loadSaved(id: String) {}
         override fun renameSaved(id: String, name: String) {}
         override fun deleteSaved(id: String) {}
+        override fun averageSaved(ids: List<String>) {}
         override fun importFiles(uris: List<Uri>) {}
         override fun reanalyze(analysis: AnalysisSettings) {}
         override fun updateEqSettings(settings: EqSettings) {}

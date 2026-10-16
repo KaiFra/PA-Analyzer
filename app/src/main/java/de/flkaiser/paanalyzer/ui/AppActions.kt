@@ -22,6 +22,9 @@ interface AppActions {
     fun loadSaved(id: String)
     fun renameSaved(id: String, name: String)
     fun deleteSaved(id: String)
+
+    /** Averages saved measurements from several positions into a new saved measurement and opens it. */
+    fun averageSaved(ids: List<String>)
     /** Imports a measurement CSV, optionally together with its WAV recording. */
     fun importFiles(uris: List<Uri>)
 

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -107,6 +108,7 @@ fun ResultsScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
             onOpen = { showLibrary = false; viewModel.loadSaved(it) },
             onRename = viewModel::renameSaved,
             onDelete = viewModel::deleteSaved,
+            onAverage = { showLibrary = false; viewModel.averageSaved(it) },
             onImport = actions.onImport,
             onDismiss = { showLibrary = false },
         )
@@ -333,10 +335,13 @@ private fun LibraryDialog(
     onOpen: (String) -> Unit,
     onRename: (String, String) -> Unit,
     onDelete: (String) -> Unit,
+    onAverage: (List<String>) -> Unit,
     onImport: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var renaming by remember { mutableStateOf<SavedEntry?>(null) }
+    // Ticked measurements, in the order they were ticked (the first one sets the level of an average).
+    var selected by remember { mutableStateOf(listOf<String>()) }
     var deleting by remember { mutableStateOf<SavedEntry?>(null) }
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = MaterialTheme.shapes.extraLarge, tonalElevation = 6.dp) {
@@ -353,9 +358,13 @@ private fun LibraryDialog(
                 LazyColumn(Modifier.heightIn(max = 420.dp)) {
                     items(entries, key = { it.id }) { entry ->
                         Row(
-                            Modifier.fillMaxWidth().clickable { onOpen(entry.id) }.padding(start = 24.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                            Modifier.fillMaxWidth().clickable { onOpen(entry.id) }.padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            Checkbox(
+                                checked = entry.id in selected,
+                                onCheckedChange = { on -> selected = if (on) selected + entry.id else selected - entry.id },
+                            )
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     entry.name,
@@ -371,7 +380,18 @@ private fun LibraryDialog(
                         HorizontalDivider()
                     }
                 }
+                val ticked = selected.filter { id -> entries.any { it.id == id } }
+                if (entries.size >= 2) {
+                    Text(
+                        if (ticked.isEmpty()) "Tick measurements from several positions to average them."
+                        else "${ticked.size} ticked",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    )
+                }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+                    if (ticked.size >= 2) TextButton(onClick = { onAverage(ticked) }) { Text("Average ${ticked.size}") }
                     TextButton(onClick = onImport) { Text("Import CSV") }
                     TextButton(onClick = onDismiss) { Text("Close") }
                 }

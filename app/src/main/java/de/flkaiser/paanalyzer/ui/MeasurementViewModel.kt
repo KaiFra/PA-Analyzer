@@ -23,6 +23,7 @@ import de.flkaiser.paanalyzer.dsp.MeasurementAnalyzer
 import de.flkaiser.paanalyzer.dsp.MeasurementDocument
 import de.flkaiser.paanalyzer.dsp.MeasurementFileException
 import de.flkaiser.paanalyzer.dsp.MeasurementResult
+import de.flkaiser.paanalyzer.dsp.PositionAverage
 import de.flkaiser.paanalyzer.dsp.PreparedMeasurement
 import de.flkaiser.paanalyzer.dsp.WavFile
 import de.flkaiser.paanalyzer.settings.AppSettings
@@ -282,6 +283,20 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         repository.delete(id)
         // A deleted measurement stays on screen, but is no longer saved.
         _state.update { s -> s.copy(current = s.current?.let { if (it.savedId == id) it.copy(savedId = null) else it }) }
+        refreshLibrary()
+    }
+
+    override fun averageSaved(ids: List<String>) = launchIo("Could not average the measurements") {
+        if (ids.size < PositionAverage.MIN_POSITIONS) return@launchIo
+        val docs = withContext(Dispatchers.IO) { ids.map { repository.load(it) } }
+        val result = withContext(Dispatchers.Default) { PositionAverage.average(docs.map { it.result }) }
+        val now = System.currentTimeMillis()
+        val name = "Average of ${docs.size} positions"
+        val entry = repository.save(result, name, now, null)
+        show(MeasurementDocument(entry.name, now, result), entry.id, null)
+        _state.update {
+            it.copy(message = "Averaged ${docs.size} positions (levels aligned at 200 Hz – 2 kHz): " + docs.joinToString(", ") { d -> d.name })
+        }
         refreshLibrary()
     }
 
