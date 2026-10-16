@@ -167,8 +167,8 @@ class EqDesignerTest {
 
     @Test
     fun allowsLargerBoostsWhenAsked() {
-        // A broad 8 dB dip: the default +3 dB limit only fills part of it.
-        val r = response(EqFilter(FilterType.PEAK, 500.0, -8.0, 1.0))
+        // An 8 dB dip: the default +3 dB limit only fills part of it.
+        val r = response(EqFilter(FilterType.PEAK, 500.0, -8.0, 3.0))
         val careful = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0))
         val generous = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, maxBoostDb = 9.5))
         assertTrue(careful.filters.maxOf { it.gainDb } <= 3.0)

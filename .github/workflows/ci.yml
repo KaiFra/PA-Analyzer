@@ -23,6 +23,11 @@ env:
 permissions:
   contents: write
 
+# Explicit bash runs steps with pipefail, so "./gradlew ... | tee" fails when Gradle fails.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     name: Tests
