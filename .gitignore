@@ -8,3 +8,6 @@ captures/
 .kotlin/
 *.jks
 *.keystore
+
+# Shared debug key so debug APKs from CI can be installed over each other (not a secret).
+!app/debug.keystore

@@ -28,6 +28,13 @@ android {
     }
 
     signingConfigs {
+        // Fixed debug key (committed on purpose) so every CI debug build can update the previous one.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (keystoreFile != null) {
             create("release") {
                 storeFile = file(keystoreFile)
