@@ -58,7 +58,9 @@ object PositionAverage {
             delayMs = results.map { it.delayMs }.average(),
             inputPeakDbfs = results.maxOf { it.inputPeakDbfs },
             irSnrDb = results.minOf { it.irSnrDb },
-            warnings = results.flatMap { it.warnings }.distinct(),
+            warnings = results.flatMap { it.warnings }.distinct() +
+                if (results.map { it.calibration }.distinct().size > 1) listOf("The positions were measured with different microphone calibrations.") else emptyList(),
+            calibration = results.map { it.calibration }.distinct().singleOrNull(),
         )
     }
 

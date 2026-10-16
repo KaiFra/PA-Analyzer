@@ -493,6 +493,7 @@ private fun DetailsDialog(current: CurrentMeasurement, micSource: String, onDism
                 if (!r.inputPeakDbfs.isNaN()) Text("Input peak: %.1f dBFS".format(r.inputPeakDbfs))
                 if (!r.irSnrDb.isNaN()) Text("Impulse response signal-to-noise: %.0f dB".format(r.irSnrDb))
                 if (current.savedId == null) Text("Microphone processing: $micSource")
+                Text("Microphone calibration: ${r.calibration ?: "none"}")
                 for (w in r.warnings) Text("⚠ $w", color = MaterialTheme.colorScheme.error)
                 HorizontalDivider(Modifier.padding(vertical = 4.dp))
                 Text(

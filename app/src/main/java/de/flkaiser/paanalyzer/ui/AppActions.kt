@@ -38,6 +38,10 @@ interface AppActions {
     /** Evaluates the current measurement's recording again with other analysis settings. */
     fun reanalyze(analysis: AnalysisSettings)
 
+    /** Loads a microphone calibration file; it is applied to new measurements and re-analyses. */
+    fun loadCalibration(uri: Uri)
+    fun clearCalibration()
+
     /** Changes the EQ suggestion settings; the suggestion is recomputed automatically. */
     fun updateEqSettings(settings: EqSettings)
 

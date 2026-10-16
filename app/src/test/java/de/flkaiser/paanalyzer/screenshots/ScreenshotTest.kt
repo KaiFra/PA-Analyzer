@@ -119,6 +119,8 @@ class ScreenshotTest {
         override fun compareSaved(ids: List<String>) {}
         override fun removeComparison(id: String) {}
         override fun alignComparisons(align: Boolean) {}
+        override fun loadCalibration(uri: Uri) {}
+        override fun clearCalibration() {}
         override fun importFiles(uris: List<Uri>) {}
         override fun reanalyze(analysis: AnalysisSettings) {}
         override fun updateEqSettings(settings: EqSettings) {}

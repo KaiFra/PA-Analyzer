@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import de.flkaiser.paanalyzer.audio.AudioEngine
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.DeviceSelection
+import de.flkaiser.paanalyzer.data.CalibrationStore
 import de.flkaiser.paanalyzer.data.MeasurementRepository
 import de.flkaiser.paanalyzer.data.SavedEntry
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
@@ -23,6 +24,7 @@ import de.flkaiser.paanalyzer.dsp.MeasurementAnalyzer
 import de.flkaiser.paanalyzer.dsp.MeasurementDocument
 import de.flkaiser.paanalyzer.dsp.MeasurementFileException
 import de.flkaiser.paanalyzer.dsp.MeasurementResult
+import de.flkaiser.paanalyzer.dsp.MicCalibration
 import de.flkaiser.paanalyzer.dsp.PositionAverage
 import de.flkaiser.paanalyzer.dsp.PreparedMeasurement
 import de.flkaiser.paanalyzer.dsp.WavFile
@@ -84,6 +86,8 @@ data class UiState(
     /** Saved measurements drawn on top of the current one. */
     val comparisons: List<Comparison> = emptyList(),
     val alignComparisons: Boolean = false,
+    /** Microphone calibration applied to new measurements, null if none is loaded. */
+    val calibration: MicCalibration? = null,
     val eqSettings: EqSettings = EqSettings(),
     /** EQ suggestion for the current measurement, recomputed when it or [eqSettings] change. */
     val eqSuggestion: EqSuggestion? = null,
@@ -101,6 +105,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private val engine = AudioEngine(application)
     private val store = SettingsStore(application)
     private val repository = MeasurementRepository(application)
+    private val calibrationStore = CalibrationStore(application)
     private var job: Job? = null
 
     /** Deconvolved form of the current recording, so analysis changes don't redo the slow part. */
@@ -112,6 +117,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             micSource = engine.micSourceLabel,
             visibleCurves = store.loadCurves() ?: Curves.DEFAULT_VISIBLE,
             eqSettings = store.loadEq(),
+            calibration = calibrationStore.load(),
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -212,7 +218,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
                 _state.update { it.copy(phase = Phase.Analyzing(0.0)) }
                 val (preparedMeasurement, result) = withContext(Dispatchers.Default) {
                     val p = analyzer.prepare(recording) { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 * f)) } }
-                    p to p.evaluate { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 + 0.15 * f)) } }
+                    p to calibrated(p.evaluate { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 + 0.15 * f)) } })
                 }
                 prepared = preparedMeasurement
                 val now = System.currentTimeMillis()
@@ -366,7 +372,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
                 val result = withContext(Dispatchers.Default) {
                     val p = prepared?.takeIf { it.recording === recording }
                         ?: MeasurementAnalyzer(current.result.settings).prepare(recording).also { prepared = it }
-                    p.evaluate(analysis)
+                    calibrated(p.evaluate(analysis))
                 }
                 val updated = current.copy(result = result)
                 _state.update { s -> s.copy(current = if (s.current?.recording === recording) updated else s.current, reanalyzing = false) }
@@ -380,6 +386,30 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             }
         }
     }
+
+    override fun loadCalibration(uri: Uri) = launchIo("Could not load the calibration file") {
+        val app = getApplication<Application>()
+        val name = displayNameWithExtension(uri) ?: "Calibration"
+        val calibration = withContext(Dispatchers.IO) {
+            val text = app.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                ?: throw MeasurementFileException("The file could not be read.")
+            MicCalibration.parse(text, name).also { calibrationStore.save(it) }
+        }
+        _state.update {
+            it.copy(
+                calibration = calibration,
+                message = "Loaded “${calibration.name}” (${calibration.size} points). It applies to new measurements and to “analyse again”.",
+            )
+        }
+    }
+
+    override fun clearCalibration() {
+        calibrationStore.clear()
+        _state.update { it.copy(calibration = null, message = "Microphone calibration removed.") }
+    }
+
+    /** Applies the loaded microphone calibration to a freshly evaluated recording. */
+    private fun calibrated(result: MeasurementResult): MeasurementResult = _state.value.calibration?.apply(result) ?: result
 
     override fun exportCurrent(): ExportData? {
         val current = _state.value.current ?: return null
@@ -423,6 +453,13 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         val app = getApplication<Application>()
         return app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0)?.substringBeforeLast('.') else null
+        }
+    }
+
+    private fun displayNameWithExtension(uri: Uri): String? {
+        val app = getApplication<Application>()
+        return app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
         }
     }
 

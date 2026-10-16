@@ -38,6 +38,10 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - **Average several positions**: measure 3–5 spots in the audience area and save each, then tick them in the list of saved measurements and choose **Average**. The positions are aligned in level at 200 Hz – 2 kHz and power-averaged (like REW's RMS average): dips from room reflections at one spot are filled by the others, while resonances of the speaker stay. The average is saved as a new measurement, so the EQ page can use it.
 - **Save** keeps the measurement on the phone, together with its recording; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV (readable by spreadsheets) plus the recording as 32-bit float WAV (e.g. for Audacity or REW). Import both files together to get a fully re-analysable copy, for example on another phone.
 
+### Microphone calibration
+
+With a USB measurement microphone (e.g. miniDSP UMIK-1/UMIK-2), load its calibration file under **Settings → Devices → Microphone calibration** (for a UMIK: the 90° file when the mic points up, the 0° file when it points at the speaker). Text files with frequency and dB per line are read (tab, space, comma or semicolon separated; phase columns and comment lines are ignored). The calibration is applied to new measurements and when analysing again: the fundamental is corrected by the mic's deviation, each harmonic by the difference between its excitation frequency and the frequency where it is heard. The measurement details show which calibration was used, and it is stored in the CSV.
+
 Bluetooth latency doesn't matter: the app finds the sweep in the recording itself and reports the measured delay.
 
 ### EQ suggestions
@@ -82,7 +86,7 @@ All signal processing lives in the pure-Kotlin `:dsp` module and is tested on th
 
 ## Limitations
 
-- Phone microphones are not calibrated and usually roll off in the deep bass; compare measurements made with the same phone and position, or use a USB measurement mic. The app records with Android's *unprocessed* source when the phone supports it (no AGC/noise suppression); otherwise it falls back to *voice recognition*.
+- Phone microphones are not calibrated and usually roll off in the deep bass; compare measurements made with the same phone and position, or use a USB measurement mic with its calibration file. The app records with Android's *unprocessed* source when the phone supports it (no AGC/noise suppression); otherwise it falls back to *voice recognition*.
 - Levels are relative (dB re digital full scale), not SPL.
 - Background noise counts as rub & buzz; check the noise-floor curve before blaming the speaker.
 
