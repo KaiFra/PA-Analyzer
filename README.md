@@ -4,12 +4,14 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 
 - **Fundamental**: frequency response of the whole chain (Bluetooth, amp, speakers, room, mic)
 - **Distortion**: THD and the individual harmonics H2…H10
+- **EQ suggestions**: parametric EQ settings (bells, shelves, a high-pass) to type into your mixer or speaker processor
 - **Rub & buzz**: energy far above the excitation frequency (default: above the 10th harmonic), RMS and peak, with a noise-floor reference, to find rattles, rubbing voice coils and loose parts
 
 <p>
-  <img src="docs/screenshots/results-portrait.png" width="260" alt="Results: fundamental and THD">
-  <img src="docs/screenshots/measure.png" width="260" alt="Measure page">
-  <img src="docs/screenshots/settings.png" width="260" alt="Settings page">
+  <img src="docs/screenshots/results-portrait.png" width="200" alt="Results: fundamental and THD">
+  <img src="docs/screenshots/eq.png" width="200" alt="EQ suggestion">
+  <img src="docs/screenshots/measure.png" width="200" alt="Measure page">
+  <img src="docs/screenshots/settings.png" width="200" alt="Settings page">
 </p>
 <p>
   <img src="docs/screenshots/results-landscape.png" width="790" alt="Results in landscape with harmonics and rub &amp; buzz">
@@ -34,6 +36,19 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - **Save** keeps the measurement on the phone, together with its recording; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV (readable by spreadsheets) plus the recording as 32-bit float WAV (e.g. for Audacity or REW). Import both files together to get a fully re-analysable copy, for example on another phone.
 
 Bluetooth latency doesn't matter: the app finds the sweep in the recording itself and reports the measured delay.
+
+### EQ suggestions
+
+The **EQ** page turns the current measurement into filter settings for a mixer or speaker processor:
+
+- Pick a **target** (flat, gentle tilt, or live with more bass), the number of **bands** your mixer has, the **range** to correct and the maximum **boost** and **cut**.
+- The app suggests bells and shelves with frequency, gain and Q (plus bandwidth in octaves, for mixers that use it), rounded to values you can dial in, and shows the measured response, the EQ, and the expected result.
+- Where the speaker rolls off in the bass it suggests a **high-pass** (24 dB/oct Linkwitz-Riley) and never boosts there; boosts are limited (+3 dB by default) because filling dips costs headroom and room cancellations can't be filled anyway. Peaks are cut first.
+- **Copy** or **Share** gives a text version with an Equalizer APO / REW section.
+
+How it works: the response is smoothed to 1/6 octave and aligned with the target in the mid band (median, so a single resonance doesn't shift it). Filters are added one at a time where they help most and then optimized together within the limits (the combined EQ, not only each band, must respect them).
+
+The suggestion is only as good as the measurement: measure where the audience is, apply the filters, and measure again.
 
 ## Settings
 
@@ -79,9 +94,9 @@ The app targets arm64-v8a only (`abiFilters`). It currently contains no native c
 
 ## CI
 
-`.github/workflows/ci.yml` has two jobs:
+`.github/workflows/ci.yml` runs on every branch push and has two jobs. Work happens on branches (e.g. `release/0.2.0`) that are merged into `main` via pull request.
 
-- **Tests**: unit tests (DSP and app), lint, and the screenshot tests. On `main`, changed screenshots are committed to `docs/screenshots`.
+- **Tests**: unit tests (DSP and app), lint, and the screenshot tests. Changed screenshots are committed to `docs/screenshots` on the branch that was pushed.
 - **Release build** (after the tests pass): checks the signing secrets, builds the signed arm64 release APK, verifies signature and ABI, and uploads it as the `release-apk` artifact.
 
 Release signing uses these repository secrets; the build job stops with a specific error if one is missing or wrong (bad base64, wrong keystore password, unknown alias, wrong key password):

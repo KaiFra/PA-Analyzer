@@ -22,6 +22,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Card
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import de.flkaiser.paanalyzer.BuildConfig
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.OutputChannel
 import de.flkaiser.paanalyzer.dsp.Smoothing
@@ -101,8 +105,44 @@ fun SettingsScreen(state: UiState, viewModel: AppActions) {
         Hint("A short IR window (e.g. 10 ms) removes room reflections but loses resolution below about 1 / window length.")
 
         OutlinedButton(onClick = viewModel::resetSettings, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("Reset to defaults") }
+
+        Section("About")
+        About()
     }
 }
+
+@Composable
+private fun About() {
+    val uriHandler = LocalUriHandler.current
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("PA Analyzer ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text("Build ${BuildConfig.VERSION_CODE}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                "Measures a PA system over Bluetooth with the phone's microphone: frequency response, harmonic distortion " +
+                    "and rub & buzz from an exponential sweep, plus EQ suggestions for your mixer or speaker processor.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Methods: synchronized exponential sweep (Farina; Novak et al.), RBJ Audio EQ Cookbook filters.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Measurements stay on this phone; the app has no internet access.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row {
+                TextButton(onClick = { uriHandler.openUri(SOURCE_URL) }) { Text("Source code") }
+                TextButton(onClick = { uriHandler.openUri(WEBSITE_URL) }) { Text("flkaiser.de") }
+            }
+        }
+    }
+}
+
+private const val SOURCE_URL = "https://github.com/KaiFra/PA-Analyzer"
+private const val WEBSITE_URL = "https://flkaiser.de"
 
 @Composable
 private fun DevicePicker(
@@ -135,17 +175,17 @@ private fun DevicePicker(
 }
 
 @Composable
-private fun Section(title: String) {
+internal fun Section(title: String) {
     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 }
 
 @Composable
-private fun Hint(text: String) {
+internal fun Hint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable
-private fun NumberField(
+internal fun NumberField(
     label: String,
     value: String,
     suffix: String,
@@ -167,7 +207,7 @@ private fun NumberField(
 }
 
 @Composable
-private fun <T> Choice(
+internal fun <T> Choice(
     label: String,
     options: List<T>,
     selected: T,

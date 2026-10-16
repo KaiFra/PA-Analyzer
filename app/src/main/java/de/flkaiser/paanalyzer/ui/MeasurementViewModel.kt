@@ -16,6 +16,9 @@ import de.flkaiser.paanalyzer.audio.DeviceSelection
 import de.flkaiser.paanalyzer.data.MeasurementRepository
 import de.flkaiser.paanalyzer.data.SavedEntry
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
+import de.flkaiser.paanalyzer.dsp.EqDesigner
+import de.flkaiser.paanalyzer.dsp.EqSettings
+import de.flkaiser.paanalyzer.dsp.EqSuggestion
 import de.flkaiser.paanalyzer.dsp.MeasurementAnalyzer
 import de.flkaiser.paanalyzer.dsp.MeasurementDocument
 import de.flkaiser.paanalyzer.dsp.MeasurementFileException
@@ -31,13 +34,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
-enum class Page { MEASURE, RESULTS, SETTINGS }
+enum class Page { MEASURE, RESULTS, EQ, SETTINGS }
 
 sealed interface Phase {
     data object Idle : Phase
@@ -74,6 +80,10 @@ data class UiState(
     val current: CurrentMeasurement? = null,
     val library: List<SavedEntry> = emptyList(),
     val visibleCurves: Set<String> = Curves.DEFAULT_VISIBLE,
+    val eqSettings: EqSettings = EqSettings(),
+    /** EQ suggestion for the current measurement, recomputed when it or [eqSettings] change. */
+    val eqSuggestion: EqSuggestion? = null,
+    val eqError: String? = null,
     /** True while the current measurement is being evaluated again with new analysis settings. */
     val reanalyzing: Boolean = false,
     /** One-off message for a snackbar. */
@@ -97,6 +107,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             form = SettingsForm.from(store.load()),
             micSource = engine.micSourceLabel,
             visibleCurves = store.loadCurves() ?: Curves.DEFAULT_VISIBLE,
+            eqSettings = store.loadEq(),
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -111,6 +122,29 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         audioManager.registerAudioDeviceCallback(deviceCallback, Handler(Looper.getMainLooper()))
         refreshDevices()
         refreshLibrary()
+        // Keep the EQ suggestion in step with the current measurement and the EQ settings.
+        viewModelScope.launch {
+            _state.map { it.current?.result to it.eqSettings }
+                .distinctUntilChanged { a, b -> a.first === b.first && a.second == b.second }
+                .collectLatest { (result, settings) ->
+                    if (result == null) {
+                        _state.update { it.copy(eqSuggestion = null, eqError = null) }
+                        return@collectLatest
+                    }
+                    val outcome = withContext(Dispatchers.Default) {
+                        runCatching { EqDesigner.design(result.frequencies, result.fundamentalDb, settings) }
+                    }
+                    _state.update {
+                        it.copy(eqSuggestion = outcome.getOrNull(), eqError = outcome.exceptionOrNull()?.let { e -> e.message ?: e.javaClass.simpleName })
+                    }
+                }
+        }
+    }
+
+    override fun updateEqSettings(settings: EqSettings) {
+        if (settings.validate().isNotEmpty()) return
+        _state.update { it.copy(eqSettings = settings) }
+        store.saveEq(settings)
     }
 
     override fun onCleared() {

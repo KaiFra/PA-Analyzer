@@ -2,6 +2,7 @@ package de.flkaiser.paanalyzer.settings
 
 import android.content.Context
 import androidx.core.content.edit
+import de.flkaiser.paanalyzer.dsp.EqSettings
 
 class SettingsStore(context: Context) {
 
@@ -17,6 +18,14 @@ class SettingsStore(context: Context) {
             for ((k, v) in SettingsCodec.encode(settings)) putString(k, v)
         }
     }
+
+    fun loadEq(): EqSettings = EqSettingsCodec.decode(stringValues())
+
+    fun saveEq(settings: EqSettings) = prefs.edit {
+        for ((k, v) in EqSettingsCodec.encode(settings)) putString(k, v)
+    }
+
+    private fun stringValues(): Map<String, String> = prefs.all.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
 
     /** Ids of the curves shown in the results chart, or null if never changed. */
     fun loadCurves(): Set<String>? = prefs.getStringSet(KEY_CURVES, null)?.toSet()

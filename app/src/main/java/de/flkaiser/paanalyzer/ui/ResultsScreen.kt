@@ -71,8 +71,6 @@ import de.flkaiser.paanalyzer.settings.SettingsForm
 import java.text.DateFormat
 import java.util.Date
 
-private val Y_LIMIT = -250.0..100.0
-
 @Composable
 fun ResultsScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
     var showLibrary by remember { mutableStateOf(false) }
@@ -155,37 +153,6 @@ private class ResultActions(
 )
 
 /** Zoom, pan and cursor of the chart for one measurement. */
-private class ChartState(val fullX: ClosedFloatingPointRange<Double>) {
-    var xRange by mutableStateOf(fullX)
-    /** null = automatic from the visible curves. */
-    var yRange by mutableStateOf<ClosedFloatingPointRange<Double>?>(null)
-    var cursorHz by mutableStateOf<Double?>(null)
-
-    fun gestures(autoY: () -> ClosedFloatingPointRange<Double>) = object : PlotGestures {
-        override fun cursor(frequencyHz: Double) {
-            cursorHz = frequencyHz
-        }
-
-        override fun zoom(factorX: Double, factorY: Double, anchorX: Double, anchorY: Double) {
-            if (factorX != 1.0) xRange = PlotMath.zoomLog(xRange, factorX, anchorX, fullX)
-            if (factorY != 1.0) yRange = PlotMath.zoomLinear(yRange ?: autoY(), factorY, anchorY, Y_LIMIT)
-        }
-
-        override fun pan(fractionX: Double, fractionY: Double) {
-            xRange = PlotMath.panLog(xRange, fractionX, fullX)
-            if (fractionY != 0.0) {
-                val y = yRange ?: autoY()
-                yRange = PlotMath.panLinear(y, fractionY, Y_LIMIT)
-            }
-        }
-
-        override fun reset() {
-            xRange = fullX
-            yRange = null
-        }
-    }
-}
-
 @Composable
 private fun rememberChartState(current: CurrentMeasurement): ChartState {
     val s = current.result.settings

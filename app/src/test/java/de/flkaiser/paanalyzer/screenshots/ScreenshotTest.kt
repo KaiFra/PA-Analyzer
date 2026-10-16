@@ -7,6 +7,8 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.data.SavedEntry
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
+import de.flkaiser.paanalyzer.dsp.EqDesigner
+import de.flkaiser.paanalyzer.dsp.EqSettings
 import de.flkaiser.paanalyzer.settings.AppSettings
 import de.flkaiser.paanalyzer.settings.SettingsForm
 import de.flkaiser.paanalyzer.ui.AppActions
@@ -48,6 +50,7 @@ class ScreenshotTest {
         current = CurrentMeasurement(DemoMeasurement.result, "Main PA – left top", CREATED, savedId = "m-1.csv"),
         library = listOf(SavedEntry("m-1.csv", "Main PA – left top", CREATED)),
         visibleCurves = curves,
+        eqSuggestion = EqDesigner.design(DemoMeasurement.result.frequencies, DemoMeasurement.result.fundamentalDb, EqSettings()),
     )
 
     @Test
@@ -60,6 +63,10 @@ class ScreenshotTest {
         val curves = setOf(Curves.FUNDAMENTAL, Curves.THD, Curves.harmonic(2), Curves.harmonic(3), Curves.RUB_BUZZ_RMS, Curves.RUB_BUZZ_NOISE)
         AppScaffold(state(Page.RESULTS, curves), NoActions)
     }
+
+    @Test
+    @Config(qualifiers = "w400dp-h820dp-xhdpi")
+    fun eq() = capture("eq", dark = false) { AppScaffold(state(Page.EQ), NoActions) }
 
     @Test
     @Config(qualifiers = "w400dp-h820dp-xhdpi")
@@ -93,6 +100,7 @@ class ScreenshotTest {
         override fun deleteSaved(id: String) {}
         override fun importFiles(uris: List<Uri>) {}
         override fun reanalyze(analysis: AnalysisSettings) {}
+        override fun updateEqSettings(settings: EqSettings) {}
         override fun exportCurrent(): ExportData? = null
     }
 
