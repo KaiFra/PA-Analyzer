@@ -72,7 +72,7 @@ data class UiState(
     val busy: Boolean get() = phase is Phase.Measuring || phase is Phase.Analyzing
 }
 
-class MeasurementViewModel(application: Application) : AndroidViewModel(application) {
+class MeasurementViewModel(application: Application) : AndroidViewModel(application), AppActions {
 
     private val engine = AudioEngine(application)
     private val store = SettingsStore(application)
@@ -104,7 +104,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         audioManager.unregisterAudioDeviceCallback(deviceCallback)
     }
 
-    fun selectPage(page: Page) = _state.update { it.copy(page = page) }
+    override fun selectPage(page: Page) = _state.update { it.copy(page = page) }
 
     // ---- Devices and settings ----
 
@@ -121,21 +121,21 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun selectOutput(option: DeviceOption) = _state.update { it.copy(selectedOutput = option) }
+    override fun selectOutput(option: DeviceOption) = _state.update { it.copy(selectedOutput = option) }
 
-    fun selectInput(option: DeviceOption) = _state.update { it.copy(selectedInput = option) }
+    override fun selectInput(option: DeviceOption) = _state.update { it.copy(selectedInput = option) }
 
-    fun updateForm(form: SettingsForm) {
+    override fun updateForm(form: SettingsForm) {
         val parsed = form.parse()
         _state.update { it.copy(form = form, formErrors = parsed.errors) }
         parsed.settings?.let { store.save(it) }
     }
 
-    fun resetSettings() = updateForm(SettingsForm.from(AppSettings()))
+    override fun resetSettings() = updateForm(SettingsForm.from(AppSettings()))
 
     // ---- Measuring ----
 
-    fun start() {
+    override fun start() {
         if (_state.value.busy) return
         val parsed = _state.value.form.parse()
         val appSettings = parsed.settings ?: run {
@@ -181,24 +181,24 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun cancel() {
+    override fun cancel() {
         job?.cancel()
     }
 
-    fun dismissError() = _state.update { if (it.phase is Phase.Failed) it.copy(phase = Phase.Idle) else it }
+    override fun dismissError() = _state.update { if (it.phase is Phase.Failed) it.copy(phase = Phase.Idle) else it }
 
     // ---- Results ----
 
-    fun toggleCurve(id: String) {
+    override fun toggleCurve(id: String) {
         val updated = _state.value.visibleCurves.let { if (id in it) it - id else it + id }
         _state.update { it.copy(visibleCurves = updated) }
         store.saveCurves(updated)
     }
 
-    fun messageShown() = _state.update { it.copy(message = null) }
+    override fun messageShown() = _state.update { it.copy(message = null) }
 
     /** Saves the current measurement under [name], or renames it if it is already saved. */
-    fun saveCurrent(name: String) {
+    override fun saveCurrent(name: String) {
         val current = _state.value.current ?: return
         val cleanName = name.trim().ifEmpty { current.name }
         launchIo("Could not save the measurement") {
@@ -214,12 +214,12 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    fun loadSaved(id: String) = launchIo("Could not open the measurement") {
+    override fun loadSaved(id: String) = launchIo("Could not open the measurement") {
         val doc = repository.load(id)
         show(doc, id)
     }
 
-    fun renameSaved(id: String, name: String) = launchIo("Could not rename the measurement") {
+    override fun renameSaved(id: String, name: String) = launchIo("Could not rename the measurement") {
         val entry = repository.rename(id, name.trim().ifEmpty { "Measurement" })
         _state.update { s ->
             val current = s.current?.takeIf { it.savedId == id }?.copy(name = entry.name)
@@ -228,14 +228,14 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         refreshLibrary()
     }
 
-    fun deleteSaved(id: String) = launchIo("Could not delete the measurement") {
+    override fun deleteSaved(id: String) = launchIo("Could not delete the measurement") {
         repository.delete(id)
         // A deleted measurement stays on screen, but is no longer saved.
         _state.update { s -> s.copy(current = s.current?.let { if (it.savedId == id) it.copy(savedId = null) else it }) }
         refreshLibrary()
     }
 
-    fun importFile(uri: Uri) = launchIo("Could not import the file") {
+    override fun importFile(uri: Uri) = launchIo("Could not import the file") {
         val app = getApplication<Application>()
         val text = withContext(Dispatchers.IO) {
             app.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
@@ -248,7 +248,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     /** CSV text of the current measurement for sharing. */
-    fun exportCurrent(): Pair<String, String>? {
+    override fun exportCurrent(): Pair<String, String>? {
         val current = _state.value.current ?: return null
         return current.name to repository.export(MeasurementDocument(current.name, current.createdAtMillis, current.result))
     }

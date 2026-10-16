@@ -48,6 +48,12 @@ private val DESTINATIONS = listOf(
 @Composable
 fun PaAnalyzerApp(viewModel: MeasurementViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    AppScaffold(state, viewModel)
+}
+
+/** The whole UI for a given state; separated from the ViewModel so it can be rendered in screenshot tests. */
+@Composable
+fun AppScaffold(state: UiState, viewModel: AppActions) {
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val snackbar = remember { SnackbarHostState() }

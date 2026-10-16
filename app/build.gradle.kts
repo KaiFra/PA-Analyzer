@@ -18,7 +18,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
-        versionName = "0.1.0"
+        versionName = System.getenv("VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.1.0"
 
         // Only 64-bit ARM is targeted. The app currently has no native code, so this
         // keeps any native library a future dependency brings in to arm64-v8a.
@@ -28,13 +28,6 @@ android {
     }
 
     signingConfigs {
-        // Fixed debug key (committed on purpose) so every CI debug build can update the previous one.
-        getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
         if (keystoreFile != null) {
             create("release") {
                 storeFile = file(keystoreFile)
@@ -68,7 +61,18 @@ android {
     }
 
     testOptions {
-        unitTests.isReturnDefaultValues = true
+        unitTests {
+            isReturnDefaultValues = true
+            // Robolectric screenshot tests need the real resources.
+            isIncludeAndroidResources = true
+            all {
+                it.systemProperty("robolectric.graphicsMode", "NATIVE")
+                // Screenshots are written straight into the docs folder used by the README.
+                it.systemProperty("roborazzi.test.record", "true")
+                it.systemProperty("screenshots.dir", rootProject.file("docs/screenshots").absolutePath)
+                it.maxHeapSize = "3g"
+            }
+        }
     }
 
     lint {
@@ -105,4 +109,10 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(kotlin("test"))
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation(libs.androidx.compose.ui.test.junit4)
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

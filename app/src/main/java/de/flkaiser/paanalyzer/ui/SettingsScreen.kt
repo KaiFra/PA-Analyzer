@@ -37,7 +37,7 @@ import de.flkaiser.paanalyzer.dsp.Smoothing
 import de.flkaiser.paanalyzer.dsp.SweepSettings
 
 @Composable
-fun SettingsScreen(state: UiState, viewModel: MeasurementViewModel) {
+fun SettingsScreen(state: UiState, viewModel: AppActions) {
     val form = state.form
     val enabled = !state.busy
     val update = viewModel::updateForm

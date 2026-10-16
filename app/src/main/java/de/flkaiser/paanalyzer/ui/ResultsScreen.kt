@@ -67,7 +67,7 @@ import java.util.Date
 private val Y_LIMIT = -250.0..100.0
 
 @Composable
-fun ResultsScreen(state: UiState, viewModel: MeasurementViewModel, landscape: Boolean) {
+fun ResultsScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
     var showLibrary by remember { mutableStateOf(false) }
     var showSave by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
@@ -180,7 +180,7 @@ private fun Chart(current: CurrentMeasurement, visible: Set<String>, chart: Char
 }
 
 @Composable
-private fun PortraitResults(current: CurrentMeasurement, state: UiState, viewModel: MeasurementViewModel, actions: ResultActions) {
+private fun PortraitResults(current: CurrentMeasurement, state: UiState, viewModel: AppActions, actions: ResultActions) {
     val chart = rememberChartState(current)
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
         ResultHeader(current, viewModel, actions, compact = false)
@@ -196,7 +196,7 @@ private fun PortraitResults(current: CurrentMeasurement, state: UiState, viewMod
 }
 
 @Composable
-private fun LandscapeResults(current: CurrentMeasurement, state: UiState, viewModel: MeasurementViewModel, actions: ResultActions) {
+private fun LandscapeResults(current: CurrentMeasurement, state: UiState, viewModel: AppActions, actions: ResultActions) {
     val chart = rememberChartState(current)
     var panelOpen by rememberSaveable { mutableStateOf(true) }
     Row(Modifier.fillMaxSize()) {
@@ -226,7 +226,7 @@ private fun LandscapeResults(current: CurrentMeasurement, state: UiState, viewMo
 @Composable
 private fun ResultHeader(
     current: CurrentMeasurement,
-    viewModel: MeasurementViewModel,
+    viewModel: AppActions,
     actions: ResultActions,
     compact: Boolean,
     onHide: (() -> Unit)? = null,
@@ -300,7 +300,7 @@ private fun CurveChip(curve: Curve, visible: Boolean, cursorHz: Double?, modifie
 }
 
 @Composable
-private fun EmptyResults(state: UiState, viewModel: MeasurementViewModel, actions: ResultActions) {
+private fun EmptyResults(state: UiState, viewModel: AppActions, actions: ResultActions) {
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),

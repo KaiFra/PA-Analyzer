@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 
 @Composable
-fun MeasureScreen(state: UiState, viewModel: MeasurementViewModel) {
+fun MeasureScreen(state: UiState, viewModel: AppActions) {
     val context = LocalContext.current
     var permissionDenied by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->

@@ -6,6 +6,17 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - **Distortion**: THD and the individual harmonics H2…H10
 - **Rub & buzz**: energy far above the excitation frequency (default: above the 10th harmonic), RMS and peak, with a noise-floor reference, to find rattles, rubbing voice coils and loose parts
 
+<p>
+  <img src="docs/screenshots/results-portrait.png" width="260" alt="Results: fundamental and THD">
+  <img src="docs/screenshots/measure.png" width="260" alt="Measure page">
+  <img src="docs/screenshots/settings.png" width="260" alt="Settings page">
+</p>
+<p>
+  <img src="docs/screenshots/results-landscape.png" width="790" alt="Results in landscape with harmonics and rub &amp; buzz">
+</p>
+
+<sub>Screenshots show a simulated loudspeaker (bass roll-off, rising bass distortion, a rattle around 120 Hz). They are rendered by the screenshot tests and updated by CI.</sub>
+
 ## Using it
 
 1. Connect the phone to the PA's Bluetooth receiver. The app picks the Bluetooth output automatically; choose another output, a USB measurement mic or one stereo channel under **Settings → Devices**.
@@ -59,17 +70,20 @@ All signal processing lives in the pure-Kotlin `:dsp` module and is tested on th
 Requires JDK 17 and the Android SDK (compileSdk 36).
 
 ```
-./gradlew :dsp:test :app:testDebugUnitTest   # unit tests
-./gradlew :app:lintDebug :app:assembleDebug  # lint + debug APK
+./gradlew :dsp:test :app:testDebugUnitTest   # unit tests (also renders docs/screenshots)
+./gradlew :app:lintRelease :app:assembleRelease
 ```
 
 The app targets arm64-v8a only (`abiFilters`). It currently contains no native code, so the APK itself isn't ABI-specific; the filter keeps any native library a future dependency brings in to arm64, and CI checks that.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request: unit tests, lint, debug and release APKs, the ABI check, and uploads the APKs and test/lint reports as artifacts.
+`.github/workflows/ci.yml` has two jobs:
 
-Release signing uses these repository secrets (the release APK is unsigned without them):
+- **Tests**: unit tests (DSP and app), lint, and the screenshot tests. On `main`, changed screenshots are committed to `docs/screenshots`.
+- **Release build** (after the tests pass): checks the signing secrets, builds the signed arm64 release APK, verifies signature and ABI, and uploads it as the `release-apk` artifact.
+
+Release signing uses these repository secrets; the build job stops with a specific error if one is missing or wrong (bad base64, wrong keystore password, unknown alias, wrong key password):
 
 | Secret | Content |
 | --- | --- |
@@ -78,4 +92,4 @@ Release signing uses these repository secrets (the release APK is unsigned witho
 | `ANDROID_KEY_ALIAS` | Key alias |
 | `ANDROID_KEY_PASSWORD` | Key password |
 
-Pushing a tag like `v0.1.0` with signing configured also publishes a GitHub release with the signed arm64 APK.
+Pushing a tag like `v0.1.0` also publishes a GitHub release with the signed APK; the tag becomes the version name.
