@@ -6,10 +6,12 @@ import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.captureRoboImage
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.data.SavedEntry
+import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.settings.AppSettings
 import de.flkaiser.paanalyzer.settings.SettingsForm
 import de.flkaiser.paanalyzer.ui.AppActions
 import de.flkaiser.paanalyzer.ui.AppScaffold
+import de.flkaiser.paanalyzer.ui.ExportData
 import de.flkaiser.paanalyzer.ui.CurrentMeasurement
 import de.flkaiser.paanalyzer.ui.Curves
 import de.flkaiser.paanalyzer.ui.PaAnalyzerTheme
@@ -89,8 +91,9 @@ class ScreenshotTest {
         override fun loadSaved(id: String) {}
         override fun renameSaved(id: String, name: String) {}
         override fun deleteSaved(id: String) {}
-        override fun importFile(uri: Uri) {}
-        override fun exportCurrent(): Pair<String, String>? = null
+        override fun importFiles(uris: List<Uri>) {}
+        override fun reanalyze(analysis: AnalysisSettings) {}
+        override fun exportCurrent(): ExportData? = null
     }
 
     private companion object {

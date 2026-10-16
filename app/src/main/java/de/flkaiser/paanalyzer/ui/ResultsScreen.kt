@@ -27,18 +27,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -55,11 +58,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import de.flkaiser.paanalyzer.data.SavedEntry
+import de.flkaiser.paanalyzer.dsp.AnalysisSettings
+import de.flkaiser.paanalyzer.dsp.Smoothing
 import de.flkaiser.paanalyzer.settings.SettingsForm
 import java.text.DateFormat
 import java.util.Date
@@ -71,16 +78,18 @@ fun ResultsScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
     var showLibrary by remember { mutableStateOf(false) }
     var showSave by remember { mutableStateOf(false) }
     var showDetails by remember { mutableStateOf(false) }
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
+    var showAnalysis by remember { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) {
             showLibrary = false
-            viewModel.importFile(uri)
+            viewModel.importFiles(uris)
         }
     }
     val actions = ResultActions(
         onSave = { showSave = true },
         onLibrary = { showLibrary = true },
         onDetails = { showDetails = true },
+        onAnalysis = { showAnalysis = true },
         onImport = { importLauncher.launch(arrayOf("*/*")) },
     )
 
@@ -112,6 +121,26 @@ fun ResultsScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
             onDismiss = { showSave = false },
         )
     }
+    if (showAnalysis && current != null) {
+        AnalysisDialog(
+            current = current,
+            onApply = { analysis, asDefault ->
+                showAnalysis = false
+                viewModel.reanalyze(analysis)
+                if (asDefault) {
+                    viewModel.updateForm(
+                        state.form.copy(
+                            irWindowMs = SettingsForm.format(analysis.irWindowMs),
+                            maxHarmonic = analysis.maxHarmonic.toString(),
+                            rubBuzzStartOrder = analysis.rubBuzzStartOrder.toString(),
+                            smoothing = analysis.smoothing,
+                        ),
+                    )
+                }
+            },
+            onDismiss = { showAnalysis = false },
+        )
+    }
     if (showDetails && current != null) {
         DetailsDialog(current, state.micSource) { showDetails = false }
     }
@@ -121,6 +150,7 @@ private class ResultActions(
     val onSave: () -> Unit,
     val onLibrary: () -> Unit,
     val onDetails: () -> Unit,
+    val onAnalysis: () -> Unit,
     val onImport: () -> Unit,
 )
 
@@ -159,7 +189,8 @@ private class ChartState(val fullX: ClosedFloatingPointRange<Double>) {
 @Composable
 private fun rememberChartState(current: CurrentMeasurement): ChartState {
     val s = current.result.settings
-    return remember(current.result) { ChartState(s.startHz..s.endHz) }
+    // Keyed by the measurement, not its result, so zoom survives changing the analysis settings.
+    return remember(current.createdAtMillis, s.startHz, s.endHz) { ChartState(s.startHz..s.endHz) }
 }
 
 @Composable
@@ -183,7 +214,7 @@ private fun Chart(current: CurrentMeasurement, visible: Set<String>, chart: Char
 private fun PortraitResults(current: CurrentMeasurement, state: UiState, viewModel: AppActions, actions: ResultActions) {
     val chart = rememberChartState(current)
     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
-        ResultHeader(current, viewModel, actions, compact = false)
+        ResultHeader(current, viewModel, actions, compact = false, reanalyzing = state.reanalyzing)
         Chart(current, state.visibleCurves, chart, Modifier.fillMaxWidth().weight(1f))
         CursorLine(chart)
         FlowRow(
@@ -213,7 +244,7 @@ private fun LandscapeResults(current: CurrentMeasurement, state: UiState, viewMo
                 Modifier.width(232.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                ResultHeader(current, viewModel, actions, compact = true, onHide = { panelOpen = false })
+                ResultHeader(current, viewModel, actions, compact = true, reanalyzing = state.reanalyzing, onHide = { panelOpen = false })
                 CursorLine(chart)
                 for (curve in current.curves) {
                     CurveChip(curve, curve.id in state.visibleCurves, chart.cursorHz, Modifier.fillMaxWidth()) { viewModel.toggleCurve(curve.id) }
@@ -229,6 +260,7 @@ private fun ResultHeader(
     viewModel: AppActions,
     actions: ResultActions,
     compact: Boolean,
+    reanalyzing: Boolean,
     onHide: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -251,16 +283,23 @@ private fun ResultHeader(
             }
             if (onHide != null) TextButton(onClick = onHide) { Text("Hide") }
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        FlowRow(verticalArrangement = Arrangement.Center) {
             if (current.savedId == null) {
-                Button(onClick = actions.onSave) { Text("Save") }
+                Button(onClick = actions.onSave, modifier = Modifier.align(Alignment.CenterVertically)) { Text("Save") }
                 Spacer(Modifier.width(4.dp))
             }
-            IconButton(onClick = { viewModel.exportCurrent()?.let { (name, csv) -> shareCsv(context, name, csv) } }) {
-                Icon(Icons.Filled.Share, contentDescription = "Share as CSV")
+            IconButton(onClick = actions.onAnalysis, enabled = !reanalyzing) {
+                Icon(Icons.Filled.Build, contentDescription = "Analysis settings")
+            }
+            IconButton(onClick = { viewModel.exportCurrent()?.let { shareMeasurement(context, it) } }) {
+                Icon(Icons.Filled.Share, contentDescription = "Share")
             }
             IconButton(onClick = actions.onLibrary) { Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Saved measurements") }
             IconButton(onClick = actions.onDetails) { Icon(Icons.Filled.Info, contentDescription = "Measurement details") }
+        }
+        if (reanalyzing) {
+            Text("Analysing again…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 2.dp))
         }
         if (current.result.warnings.isNotEmpty()) {
             Text(
@@ -431,6 +470,66 @@ private fun DetailsDialog(current: CurrentMeasurement, micSource: String, onDism
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+@Composable
+private fun AnalysisDialog(
+    current: CurrentMeasurement,
+    onApply: (AnalysisSettings, asDefault: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val s = current.result.settings
+    var smoothing by remember { mutableStateOf(s.smoothing) }
+    var irWindow by remember { mutableStateOf(SettingsForm.format(s.irWindowMs)) }
+    var harmonics by remember { mutableStateOf(s.maxHarmonic.toString()) }
+    var order by remember { mutableStateOf(s.rubBuzzStartOrder.toString()) }
+    var asDefault by remember { mutableStateOf(false) }
+
+    val parsed = AnalysisInput(irWindow, harmonics, order, smoothing).parse(s)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Analysis settings") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (current.recording == null) {
+                    Text(
+                        "This measurement has no stored recording (saved with an older version, or imported without its WAV file), " +
+                            "so it can't be analysed again. Measure again to change these settings.",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                } else {
+                    Text("Smoothing", style = MaterialTheme.typography.labelLarge)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (option in Smoothing.entries) {
+                            FilterChip(selected = option == smoothing, onClick = { smoothing = option }, label = { Text(option.label) })
+                        }
+                    }
+                    OutlinedTextField(irWindow, { irWindow = it }, label = { Text("IR window") }, suffix = { Text("ms") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(harmonics, { harmonics = it }, label = { Text("Harmonics up to") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(order, { order = it }, label = { Text("Rub & buzz from order") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    for (error in parsed.second) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { asDefault = !asDefault }) {
+                        Checkbox(checked = asDefault, onCheckedChange = { asDefault = it })
+                        Text("Also use for new measurements")
+                    }
+                    Text(
+                        "Sweep settings (range, duration, level, averages) are part of the recording and can't be changed afterwards.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { parsed.first?.let { onApply(it, asDefault) } }, enabled = current.recording != null && parsed.first != null) {
+                Text("Apply")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
 

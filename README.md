@@ -30,7 +30,8 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - Tap or drag on the chart for a cursor. The chips then show the values at the cursor: the fundamental in dB, distortion in dB and % relative to the fundamental, rub & buzz in dB relative to the fundamental.
 - Pinch horizontally to zoom the frequency axis, vertically to zoom the level axis; drag with two fingers to pan; double-tap to reset.
 - Turn the phone sideways to view curves: the system bars hide, the navigation moves to a slim side rail and the curve list to a side panel you can hide.
-- **Save** keeps the measurement on the phone; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV, which spreadsheets can read and the app can import again (e.g. on another phone).
+- The wrench button changes the **analysis settings after the measurement**: smoothing, IR window, number of harmonics and rub & buzz start order. The raw recording is kept with every measurement, so it is evaluated again without measuring again (sweep settings are part of the recording and stay fixed).
+- **Save** keeps the measurement on the phone, together with its recording; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV (readable by spreadsheets) plus the recording as 32-bit float WAV (e.g. for Audacity or REW). Import both files together to get a fully re-analysable copy, for example on another phone.
 
 Bluetooth latency doesn't matter: the app finds the sweep in the recording itself and reports the measured delay.
 

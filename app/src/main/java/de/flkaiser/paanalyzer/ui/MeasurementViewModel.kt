@@ -15,10 +15,13 @@ import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.DeviceSelection
 import de.flkaiser.paanalyzer.data.MeasurementRepository
 import de.flkaiser.paanalyzer.data.SavedEntry
+import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.dsp.MeasurementAnalyzer
 import de.flkaiser.paanalyzer.dsp.MeasurementDocument
 import de.flkaiser.paanalyzer.dsp.MeasurementFileException
 import de.flkaiser.paanalyzer.dsp.MeasurementResult
+import de.flkaiser.paanalyzer.dsp.PreparedMeasurement
+import de.flkaiser.paanalyzer.dsp.WavFile
 import de.flkaiser.paanalyzer.settings.AppSettings
 import de.flkaiser.paanalyzer.settings.SettingsForm
 import de.flkaiser.paanalyzer.settings.SettingsStore
@@ -43,12 +46,17 @@ sealed interface Phase {
     data class Failed(val message: String) : Phase
 }
 
-/** The measurement shown on the results page; [savedId] is null until it is saved. */
+/**
+ * The measurement shown on the results page; [savedId] is null until it is saved.
+ * [recording] is the raw microphone signal, needed to change analysis settings later
+ * (null for measurements saved by older versions or imported without their WAV file).
+ */
 data class CurrentMeasurement(
     val result: MeasurementResult,
     val name: String,
     val createdAtMillis: Long,
     val savedId: String?,
+    val recording: FloatArray? = null,
 ) {
     val curves: List<Curve> by lazy { Curves.build(result) }
 }
@@ -66,6 +74,8 @@ data class UiState(
     val current: CurrentMeasurement? = null,
     val library: List<SavedEntry> = emptyList(),
     val visibleCurves: Set<String> = Curves.DEFAULT_VISIBLE,
+    /** True while the current measurement is being evaluated again with new analysis settings. */
+    val reanalyzing: Boolean = false,
     /** One-off message for a snackbar. */
     val message: String? = null,
 ) {
@@ -78,6 +88,9 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private val store = SettingsStore(application)
     private val repository = MeasurementRepository(application)
     private var job: Job? = null
+
+    /** Deconvolved form of the current recording, so analysis changes don't redo the slow part. */
+    private var prepared: PreparedMeasurement? = null
 
     private val _state = MutableStateFlow(
         UiState(
@@ -159,14 +172,16 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
                     input = input,
                 ) { p -> _state.update { it.copy(phase = Phase.Measuring(p)) } }
                 _state.update { it.copy(phase = Phase.Analyzing(0.0)) }
-                val result = withContext(Dispatchers.Default) {
-                    analyzer.analyze(recording) { p -> _state.update { it.copy(phase = Phase.Analyzing(p)) } }
+                val (preparedMeasurement, result) = withContext(Dispatchers.Default) {
+                    val p = analyzer.prepare(recording) { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 * f)) } }
+                    p to p.evaluate { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 + 0.15 * f)) } }
                 }
+                prepared = preparedMeasurement
                 val now = System.currentTimeMillis()
                 _state.update {
                     it.copy(
                         phase = Phase.Idle,
-                        current = CurrentMeasurement(result, defaultName(now), now, savedId = null),
+                        current = CurrentMeasurement(result, defaultName(now), now, savedId = null, recording = recording),
                         page = Page.RESULTS,
                     )
                 }
@@ -203,7 +218,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         val cleanName = name.trim().ifEmpty { current.name }
         launchIo("Could not save the measurement") {
             val entry = if (current.savedId == null) {
-                repository.save(current.result, cleanName, current.createdAtMillis)
+                repository.save(current.result, cleanName, current.createdAtMillis, current.recording)
             } else {
                 repository.rename(current.savedId, cleanName)
             }
@@ -216,7 +231,8 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     override fun loadSaved(id: String) = launchIo("Could not open the measurement") {
         val doc = repository.load(id)
-        show(doc, id)
+        val recording = runCatching { repository.loadRecording(id) }.getOrNull()
+        show(doc, id, recording)
     }
 
     override fun renameSaved(id: String, name: String) = launchIo("Could not rename the measurement") {
@@ -235,28 +251,68 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         refreshLibrary()
     }
 
-    override fun importFile(uri: Uri) = launchIo("Could not import the file") {
+    override fun importFiles(uris: List<Uri>) = launchIo("Could not import the file") {
         val app = getApplication<Application>()
-        val text = withContext(Dispatchers.IO) {
-            app.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
-        } ?: throw MeasurementFileException("The file could not be read.")
-        val fallbackName = withContext(Dispatchers.IO) { displayName(uri) } ?: "Imported measurement"
-        val (entry, doc) = repository.import(text, fallbackName)
-        show(doc, entry.id)
-        _state.update { it.copy(message = "Imported “${entry.name}”") }
+        val files = withContext(Dispatchers.IO) {
+            uris.map { uri ->
+                val name = displayName(uri)
+                val bytes = app.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: throw MeasurementFileException("The file could not be read.")
+                (name ?: "") to bytes
+            }
+        }
+        fun isWav(bytes: ByteArray) = bytes.size > 12 && String(bytes, 0, 4, Charsets.US_ASCII) == "RIFF"
+        val csv = files.firstOrNull { !isWav(it.second) }
+            ?: throw MeasurementFileException("Choose the measurement's CSV file (optionally together with its WAV file).")
+        val wav = files.firstOrNull { isWav(it.second) }?.second
+        val fallbackName = csv.first.substringBeforeLast('.').ifBlank { "Imported measurement" }
+        val (entry, doc) = repository.import(csv.second.toString(Charsets.UTF_8), fallbackName, wav)
+        show(doc, entry.id, wav?.let { WavFile.read(it).samples })
+        _state.update { it.copy(message = "Imported “${entry.name}”" + if (wav == null) " (without recording)" else "") }
         refreshLibrary()
     }
 
-    /** CSV text of the current measurement for sharing. */
-    override fun exportCurrent(): Pair<String, String>? {
-        val current = _state.value.current ?: return null
-        return current.name to repository.export(MeasurementDocument(current.name, current.createdAtMillis, current.result))
+    override fun reanalyze(analysis: AnalysisSettings) {
+        val current = _state.value.current ?: return
+        val recording = current.recording
+        if (recording == null) {
+            _state.update { it.copy(message = "This measurement has no stored recording, so it can't be analysed again.") }
+            return
+        }
+        if (_state.value.reanalyzing) return
+        _state.update { it.copy(reanalyzing = true) }
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.Default) {
+                    val p = prepared?.takeIf { it.recording === recording }
+                        ?: MeasurementAnalyzer(current.result.settings).prepare(recording).also { prepared = it }
+                    p.evaluate(analysis)
+                }
+                val updated = current.copy(result = result)
+                _state.update { s -> s.copy(current = if (s.current?.recording === recording) updated else s.current, reanalyzing = false) }
+                // A saved measurement keeps the new analysis; its recording is unchanged.
+                current.savedId?.let { repository.update(it, MeasurementDocument(updated.name, updated.createdAtMillis, result)) }
+            } catch (e: CancellationException) {
+                _state.update { it.copy(reanalyzing = false) }
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(reanalyzing = false, message = "Could not analyse again: ${e.message ?: e.javaClass.simpleName}") }
+            }
+        }
     }
 
-    private fun show(doc: MeasurementDocument, id: String) {
+    override fun exportCurrent(): ExportData? {
+        val current = _state.value.current ?: return null
+        val csv = repository.export(MeasurementDocument(current.name, current.createdAtMillis, current.result))
+        val wav = current.recording?.let { WavFile.write(it, current.result.settings.sampleRate) }
+        return ExportData(current.name, csv, wav)
+    }
+
+    private fun show(doc: MeasurementDocument, id: String, recording: FloatArray?) {
+        prepared = null
         _state.update {
             it.copy(
-                current = CurrentMeasurement(doc.result, doc.name.ifBlank { defaultName(doc.createdAtMillis) }, doc.createdAtMillis, id),
+                current = CurrentMeasurement(doc.result, doc.name.ifBlank { defaultName(doc.createdAtMillis) }, doc.createdAtMillis, id, recording),
                 page = Page.RESULTS,
             )
         }

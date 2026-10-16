@@ -2,6 +2,7 @@ package de.flkaiser.paanalyzer.ui
 
 import android.net.Uri
 import de.flkaiser.paanalyzer.audio.DeviceOption
+import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.settings.SettingsForm
 
 /** Everything the screens can ask for. Implemented by [MeasurementViewModel]; screenshot tests use a no-op. */
@@ -20,8 +21,15 @@ interface AppActions {
     fun loadSaved(id: String)
     fun renameSaved(id: String, name: String)
     fun deleteSaved(id: String)
-    fun importFile(uri: Uri)
+    /** Imports a measurement CSV, optionally together with its WAV recording. */
+    fun importFiles(uris: List<Uri>)
 
-    /** Name and CSV text of the current measurement for sharing, or null if none is open. */
-    fun exportCurrent(): Pair<String, String>?
+    /** Evaluates the current measurement's recording again with other analysis settings. */
+    fun reanalyze(analysis: AnalysisSettings)
+
+    /** The current measurement as files for sharing, or null if none is open. */
+    fun exportCurrent(): ExportData?
 }
+
+/** A measurement ready for sharing: the CSV and, if available, the recording as WAV. */
+class ExportData(val name: String, val csv: String, val wav: ByteArray?)

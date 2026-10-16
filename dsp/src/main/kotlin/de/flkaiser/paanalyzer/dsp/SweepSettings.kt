@@ -12,6 +12,17 @@ enum class Smoothing(val fraction: Int, val label: String) {
 }
 
 /**
+ * The parameters that only affect the evaluation of a recording. They can be
+ * changed after the measurement without measuring again.
+ */
+data class AnalysisSettings(
+    val irWindowMs: Double,
+    val maxHarmonic: Int,
+    val rubBuzzStartOrder: Int,
+    val smoothing: Smoothing,
+)
+
+/**
  * All user-adjustable parameters of one measurement.
  *
  * The excitation is a synchronized exponential sweep (Farina / Novak). It is played
@@ -35,6 +46,15 @@ data class SweepSettings(
     val rubBuzzStartOrder: Int = 10,
     val smoothing: Smoothing = Smoothing.OCT_12,
 ) {
+    val analysis: AnalysisSettings get() = AnalysisSettings(irWindowMs, maxHarmonic, rubBuzzStartOrder, smoothing)
+
+    fun withAnalysis(a: AnalysisSettings) = copy(
+        irWindowMs = a.irWindowMs,
+        maxHarmonic = a.maxHarmonic,
+        rubBuzzStartOrder = a.rubBuzzStartOrder,
+        smoothing = a.smoothing,
+    )
+
     /** Linear peak amplitude of the sweep (1.0 = full scale). */
     val amplitude: Double get() = 10.0.pow(levelDbfs / 20.0)
 

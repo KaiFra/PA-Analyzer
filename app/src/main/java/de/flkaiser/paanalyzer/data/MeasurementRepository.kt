@@ -3,7 +3,9 @@ package de.flkaiser.paanalyzer.data
 import android.content.Context
 import de.flkaiser.paanalyzer.dsp.MeasurementDocument
 import de.flkaiser.paanalyzer.dsp.MeasurementFile
+import de.flkaiser.paanalyzer.dsp.MeasurementFileException
 import de.flkaiser.paanalyzer.dsp.MeasurementResult
+import de.flkaiser.paanalyzer.dsp.WavFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -11,7 +13,11 @@ import java.io.File
 /** A saved measurement as listed in the library. */
 data class SavedEntry(val id: String, val name: String, val createdAtMillis: Long)
 
-/** Stores measurements as CSV files (see [MeasurementFile]) in the app's private storage. */
+/**
+ * Stores measurements as CSV files (see [MeasurementFile]) in the app's private
+ * storage, each with its raw recording as a 32-bit float WAV file of the same name,
+ * so the analysis can be repeated with other settings later.
+ */
 class MeasurementRepository(context: Context) {
 
     private val dir = File(context.filesDir, "measurements").apply { mkdirs() }
@@ -28,8 +34,27 @@ class MeasurementRepository(context: Context) {
             .sortedByDescending { it.createdAtMillis }
     }
 
-    suspend fun save(result: MeasurementResult, name: String, createdAtMillis: Long = System.currentTimeMillis()): SavedEntry =
-        write(MeasurementDocument(name, createdAtMillis, result), newId(createdAtMillis))
+    suspend fun save(
+        result: MeasurementResult,
+        name: String,
+        createdAtMillis: Long = System.currentTimeMillis(),
+        recording: FloatArray? = null,
+    ): SavedEntry {
+        val id = newId(createdAtMillis)
+        if (recording != null) writeRecording(id, recording, result.settings.sampleRate)
+        return write(MeasurementDocument(name, createdAtMillis, result), id)
+    }
+
+    /** Replaces the stored analysis (e.g. after changing analysis settings); the recording stays. */
+    suspend fun update(id: String, doc: MeasurementDocument): SavedEntry = write(doc, id)
+
+    /** The raw recording of a saved measurement, or null for measurements saved without one. */
+    suspend fun loadRecording(id: String): FloatArray? = withContext(Dispatchers.IO) {
+        val wav = recordingFile(id)
+        if (!wav.exists()) null else WavFile.read(wav.readBytes()).samples
+    }
+
+    fun recordingFile(id: String): File = File(dir, file(id).nameWithoutExtension + WAV_EXTENSION)
 
     suspend fun load(id: String): MeasurementDocument = withContext(Dispatchers.IO) {
         MeasurementFile.read(file(id).readText())
@@ -40,14 +65,38 @@ class MeasurementRepository(context: Context) {
         return write(MeasurementDocument(name, doc.createdAtMillis, doc.result), id)
     }
 
-    suspend fun delete(id: String) = withContext(Dispatchers.IO) { file(id).delete() }
+    suspend fun delete(id: String) = withContext(Dispatchers.IO) {
+        recordingFile(id).delete()
+        file(id).delete()
+    }
 
-    /** Imports a measurement file (e.g. one shared from another phone) and returns the stored copy. */
-    suspend fun import(text: String, fallbackName: String): Pair<SavedEntry, MeasurementDocument> {
+    /**
+     * Imports a measurement file (e.g. one shared from another phone), optionally with its
+     * recording, and returns the stored copy.
+     */
+    suspend fun import(text: String, fallbackName: String, wav: ByteArray? = null): Pair<SavedEntry, MeasurementDocument> {
         val doc = MeasurementFile.read(text)
         val created = doc.createdAtMillis.takeIf { it > 0 } ?: System.currentTimeMillis()
         val stored = MeasurementDocument(doc.name.ifBlank { fallbackName }, created, doc.result)
-        return write(stored, newId(System.currentTimeMillis())) to stored
+        val id = newId(System.currentTimeMillis())
+        if (wav != null) {
+            val audio = WavFile.read(wav)
+            if (audio.sampleRate != doc.result.settings.sampleRate) {
+                throw MeasurementFileException("The recording's sample rate (${audio.sampleRate} Hz) does not match the measurement.")
+            }
+            writeRecording(id, audio.samples, audio.sampleRate)
+        }
+        return write(stored, id) to stored
+    }
+
+    private suspend fun writeRecording(id: String, samples: FloatArray, sampleRate: Int) = withContext(Dispatchers.IO) {
+        val target = recordingFile(id)
+        val tmp = File(dir, target.name + ".tmp")
+        tmp.writeBytes(WavFile.write(samples, sampleRate))
+        if (!tmp.renameTo(target)) {
+            target.delete()
+            tmp.renameTo(target)
+        }
     }
 
     /** The CSV text of a measurement, for sharing. */
@@ -68,7 +117,7 @@ class MeasurementRepository(context: Context) {
         var n = 0
         while (true) {
             val id = "m-$millis${if (n == 0) "" else "-$n"}$EXTENSION"
-            if (!File(dir, id).exists()) return id
+            if (!File(dir, id).exists() && !recordingFile(id).exists()) return id
             n++
         }
     }
@@ -80,5 +129,6 @@ class MeasurementRepository(context: Context) {
 
     private companion object {
         const val EXTENSION = ".csv"
+        const val WAV_EXTENSION = ".wav"
     }
 }
