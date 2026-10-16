@@ -133,16 +133,12 @@ private fun About() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row {
-                TextButton(onClick = { uriHandler.openUri(SOURCE_URL) }) { Text("Source code") }
-                TextButton(onClick = { uriHandler.openUri(WEBSITE_URL) }) { Text("flkaiser.de") }
-            }
+            TextButton(onClick = { uriHandler.openUri(SOURCE_URL) }) { Text("Source code") }
         }
     }
 }
 
 private const val SOURCE_URL = "https://github.com/KaiFra/PA-Analyzer"
-private const val WEBSITE_URL = "https://flkaiser.de"
 
 @Composable
 private fun DevicePicker(

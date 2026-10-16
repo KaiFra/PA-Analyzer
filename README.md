@@ -41,7 +41,7 @@ Bluetooth latency doesn't matter: the app finds the sweep in the recording itsel
 
 The **EQ** page turns the current measurement into filter settings for a mixer or speaker processor:
 
-- Pick a **target** (flat, gentle tilt, or live with more bass), the number of **bands** your mixer has, the **filter types** it offers (bell, low shelf, high shelf, high-pass), the **range** to correct and the maximum **boost** (0–12 dB) and **cut** (1–24 dB), with a slider or by typing the value. Changes apply immediately.
+- Pick a **target**: a preset (flat, gentle tilt, live with more bass) or your own **tilt** (dB per octave around 1 kHz) and **bass boost** (level and frequency). Then set the number of **bands** your mixer has, the **filter types** it offers (bell, low shelf, high shelf, high-pass), the **range** to correct and the maximum **boost** (0–12 dB) and **cut** (1–24 dB), with a slider or by typing the value. Changes apply immediately.
 - The app suggests bells and shelves with frequency, gain and Q (plus bandwidth in octaves, for mixers that use it), rounded to values you can dial in, and shows the measured response, the EQ, and the expected result.
 - Where the speaker rolls off in the bass it suggests a **high-pass** (24 dB/oct Linkwitz-Riley) and never boosts there; boosts are limited (+3 dB by default) because filling dips costs headroom and room cancellations can't be filled anyway. Peaks are cut first.
 - **Copy** or **Share** gives a text version with an Equalizer APO / REW section.

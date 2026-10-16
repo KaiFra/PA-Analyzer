@@ -36,6 +36,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.LaunchedEffect
 import kotlin.math.roundToInt
+import java.math.BigDecimal
+import java.math.RoundingMode
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -245,10 +247,38 @@ private fun Controls(settings: EqSettings, suggestion: EqSuggestion?, viewModel:
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Choice("Target", EqTarget.entries, settings.target, { it.label }, enabled = true) {
-                viewModel.updateEqSettings(settings.copy(target = it))
+            Text("Target", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (preset in EqTarget.entries) {
+                    FilterChip(
+                        selected = settings.preset == preset,
+                        onClick = { viewModel.updateEqSettings(preset.applyTo(settings)) },
+                        label = { Text(preset.label) },
+                    )
+                }
             }
-            Text(settings.target.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                settings.preset?.description ?: "Custom: ${settings.targetLabel}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ValueSlider("Tilt", settings.tiltDbPerOctave, EqSettings.MIN_TILT..EqSettings.MAX_TILT, step = 0.1, suffix = "dB/oct") {
+                viewModel.updateEqSettings(settings.copy(tiltDbPerOctave = it))
+            }
+            ValueSlider("Bass boost", settings.bassBoostDb, 0.0..EqSettings.MAX_BASS_BOOST_DB, step = 0.5, prefix = "+", suffix = "dB") {
+                viewModel.updateEqSettings(settings.copy(bassBoostDb = it))
+            }
+            if (settings.bassBoostDb > 0) {
+                ValueSlider("Bass boost below", settings.bassBoostHz, EqSettings.MIN_BASS_HZ..EqSettings.MAX_BASS_HZ, step = 10.0, suffix = "Hz") {
+                    viewModel.updateEqSettings(settings.copy(bassBoostHz = it))
+                }
+            }
+            Text(
+                "Tilt turns around 1 kHz: −1 dB/oct gives about +3 dB at 125 Hz and −3 dB at 8 kHz. " +
+                    "The bass boost is a smooth shelf with half its level at the set frequency.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             Text("Bands available on your mixer", style = MaterialTheme.typography.labelLarge)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -273,7 +303,7 @@ private fun Controls(settings: EqSettings, suggestion: EqSuggestion?, viewModel:
                     applyRange(minHz, it)
                 }
             }
-            DbLimit("Maximum boost", settings.maxBoostDb, 0.0..EqSettings.MAX_BOOST_DB, sign = "+") {
+            ValueSlider("Maximum boost", settings.maxBoostDb, 0.0..EqSettings.MAX_BOOST_DB, step = 0.5, prefix = "+", suffix = "dB") {
                 viewModel.updateEqSettings(settings.copy(maxBoostDb = it))
             }
             Text(
@@ -281,7 +311,7 @@ private fun Controls(settings: EqSettings, suggestion: EqSuggestion?, viewModel:
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            DbLimit("Maximum cut", settings.maxCutDb, EqSettings.MIN_CUT_DB..EqSettings.MAX_CUT_DB, sign = "−") {
+            ValueSlider("Maximum cut", settings.maxCutDb, EqSettings.MIN_CUT_DB..EqSettings.MAX_CUT_DB, step = 0.5, prefix = "−", suffix = "dB") {
                 viewModel.updateEqSettings(settings.copy(maxCutDb = it))
             }
 
@@ -314,11 +344,19 @@ private fun Controls(settings: EqSettings, suggestion: EqSuggestion?, viewModel:
     }
 }
 
-/** Boost or cut limit: a slider in 0.5 dB steps plus a field for typing the value. */
+/** A setting with a slider in [step] steps plus a field for typing the value. */
 @Composable
-private fun DbLimit(label: String, value: Double, range: ClosedFloatingPointRange<Double>, sign: String, onChange: (Double) -> Unit) {
-    fun snap(v: Float) = (v * 2).roundToInt() / 2.0
-    fun parse(t: String) = t.trim().replace(',', '.').toDoubleOrNull()
+private fun ValueSlider(
+    label: String,
+    value: Double,
+    range: ClosedFloatingPointRange<Double>,
+    step: Double,
+    prefix: String = "",
+    suffix: String,
+    onChange: (Double) -> Unit,
+) {
+    fun snap(v: Float) = BigDecimal.valueOf((v / step).roundToInt() * step).setScale(2, RoundingMode.HALF_UP).toDouble()
+    fun parse(t: String) = t.trim().replace(',', '.').replace('−', '-').toDoubleOrNull()
     var text by remember { mutableStateOf(SettingsForm.format(value)) }
     var dragging by remember { mutableStateOf<Float?>(null) }
     // Follow outside changes (reset, slider) without overwriting what is being typed.
@@ -338,7 +376,7 @@ private fun DbLimit(label: String, value: Double, range: ClosedFloatingPointRang
                     dragging = null
                 },
                 valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
-                steps = ((range.endInclusive - range.start) * 2).roundToInt() - 1,
+                steps = ((range.endInclusive - range.start) / step).roundToInt() - 1,
                 modifier = Modifier.weight(1f),
             )
             OutlinedTextField(
@@ -347,12 +385,12 @@ private fun DbLimit(label: String, value: Double, range: ClosedFloatingPointRang
                     text = t
                     parse(t)?.takeIf { it in range && it != value }?.let(onChange)
                 },
-                prefix = { Text(sign) },
-                suffix = { Text("dB") },
+                prefix = if (prefix.isEmpty()) null else ({ Text(prefix) }),
+                suffix = { Text(suffix) },
                 singleLine = true,
                 isError = parse(text)?.let { it !in range } ?: true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                modifier = Modifier.width(112.dp),
+                modifier = Modifier.width(128.dp),
             )
         }
     }
