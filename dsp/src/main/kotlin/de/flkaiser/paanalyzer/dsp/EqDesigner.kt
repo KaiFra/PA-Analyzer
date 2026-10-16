@@ -159,21 +159,29 @@ object EqDesigner {
         val model = Model(frequencies, measured, target, range, highPass, settings.maxBoostDb, settings.maxCutDb, boostFrom, boostTo)
         val rmsBefore = model.rms(emptyList())
 
-        // Greedy: add the filter that helps most, then optimize everything together.
-        var filters = mutableListOf<EqFilter>()
+        // Greedy: add the filter that helps most (without boosting and cutting on top of each other).
+        var filters = listOf<EqFilter>()
         val limits = Limits(from, to, settings.maxBoostDb, settings.maxCutDb)
         var cost = model.cost(filters)
+        val steps = mutableListOf(filters)
         for (k in 0 until settings.filterCount) {
             val candidate = candidates(model, filters, limits)
                 .map { optimize(model, filters + it, limits, onlyLast = true) }
+                .filter { conflict(it) == null }
                 .minByOrNull { model.cost(it) } ?: break
             val newCost = model.cost(candidate)
             // Stop when another band would hardly help.
             if (newCost > cost * (1 - MIN_IMPROVEMENT) || model.rms(filters) < 0.25) break
-            filters = candidate.toMutableList()
+            filters = candidate
             cost = newCost
+            steps += filters
         }
-        filters = optimize(model, filters, limits, onlyLast = false).toMutableList()
+        // Then optimize all bands together and clean up. Every greedy step is finished this way and the
+        // best one wins, so allowing more bands never gives a worse result than allowing fewer.
+        filters = steps.drop(1).reversed()
+            .map { prune(model, optimize(model, it, limits, onlyLast = false), limits) }
+            .minByOrNull { model.cost(it) * (1 + MIN_IMPROVEMENT * it.size) }
+            ?: emptyList()
 
         // Round to dialable values and drop bands that no longer do anything.
         val rounded = filters.map { roundFilter(it, limits) }.filter { abs(it.gainDb) >= MIN_USEFUL_GAIN_DB }.sortedBy { it.frequencyHz }
@@ -310,8 +318,26 @@ object EqDesigner {
         val f = model.frequencies
         val result = mutableListOf<EqFilter>()
 
-        val peak = range.maxByOrNull { val v = e[it]; if (v > 0) v else sqrt(DIP_WEIGHT) * -v }
-        if (peak != null) {
+        // Bells at the three largest deviations that may be corrected (dips only where boosting is allowed).
+        fun score(i: Int): Double {
+            val v = e[i]
+            return when {
+                v > 0 -> v
+                f[i] in model.boostFromHz..model.boostToHz && limits.maxBoostDb > 0 -> sqrt(DIP_WEIGHT) * -v
+                else -> 0.0
+            }
+        }
+        val peaks = range.filter { i ->
+            val sc = score(i)
+            sc > 0.5 && (i == range.first() || score(i - 1) <= sc) && (i == range.last() || score(i + 1) <= sc)
+        }.sortedByDescending { score(it) }
+        val chosen = mutableListOf<Int>()
+        for (p in peaks) {
+            if (chosen.size == 3) break
+            // Keep candidates at least 1/3 octave apart.
+            if (chosen.none { abs(ln(f[it] / f[p])) < ln(2.0) / 3 }) chosen += p
+        }
+        for (peak in chosen) {
             val level = e[peak]
             // Width from the points where the deviation falls to half its value.
             var lo = peak
@@ -321,15 +347,65 @@ object EqDesigner {
             val q = limits.q(f[peak] / max(f[hi] - f[lo], f[peak] / 20))
             result += EqFilter(FilterType.PEAK, f[peak], limits.gain(-level), q)
         }
+        // Like on most mixers: at most one low shelf and one high shelf.
+        val hasLowShelf = filters.any { it.type == FilterType.LOW_SHELF }
+        val hasHighShelf = filters.any { it.type == FilterType.HIGH_SHELF }
         for (octaves in listOf(1.0, 2.0)) {
             val lowCorner = limits.frequency(limits.fromHz * 2.0.pow(octaves))
             val below = range.filter { f[it] <= lowCorner }
-            if (below.isNotEmpty()) result += EqFilter(FilterType.LOW_SHELF, lowCorner, limits.gain(-below.sumOf { e[it] } / below.size))
+            if (!hasLowShelf && below.isNotEmpty()) {
+                result += EqFilter(FilterType.LOW_SHELF, lowCorner, limits.gain(-below.sumOf { e[it] } / below.size))
+            }
             val highCorner = limits.frequency(limits.toHz / 2.0.pow(octaves))
             val above = range.filter { f[it] >= highCorner }
-            if (above.isNotEmpty()) result += EqFilter(FilterType.HIGH_SHELF, highCorner, limits.gain(-above.sumOf { e[it] } / above.size))
+            if (!hasHighShelf && above.isNotEmpty()) {
+                result += EqFilter(FilterType.HIGH_SHELF, highCorner, limits.gain(-above.sumOf { e[it] } / above.size))
+            }
         }
         return result
+    }
+
+    /**
+     * Cleans up the optimized set: first, bands that work against each other (a boost and a cut
+     * less than 1/3 octave apart, e.g. a low shelf +1 dB and a bell -1 dB at the same frequency)
+     * are resolved by keeping the better of the two (or neither); then bands that hardly matter are
+     * removed. The rest is re-optimized after every removal.
+     */
+    private fun prune(model: Model, start: List<EqFilter>, limits: Limits): List<EqFilter> {
+        fun without(filters: List<EqFilter>, remove: List<Int>): List<EqFilter> =
+            filters.filterIndexed { k, _ -> k !in remove }.let { if (it.isEmpty()) it else optimize(model, it, limits, onlyLast = false) }
+
+        var filters = start
+        repeat(filters.size) {
+            val (i, j) = conflict(filters) ?: return@repeat
+            filters = listOf(listOf(i), listOf(j), listOf(i, j)).map { without(filters, it) }.minBy { model.cost(it) }
+        }
+        while (true) {
+            val cost = model.cost(filters)
+            val options = buildList {
+                for (i in filters.indices) add(listOf(i))
+                for (i in filters.indices) for (j in i + 1 until filters.size) {
+                    if (close(filters[i], filters[j])) add(listOf(i, j))
+                }
+            }
+            filters = options
+                .map { without(filters, it) }
+                .filter { model.cost(it) <= cost * (1 + MIN_IMPROVEMENT) && conflict(it) == null }
+                .minWithOrNull(compareBy<List<EqFilter>> { it.size }.thenBy { model.cost(it) })
+                ?: return filters
+        }
+    }
+
+    private fun close(a: EqFilter, b: EqFilter) = abs(ln(a.frequencyHz / b.frequencyHz)) < ln(2.0) / 3
+
+    /** The first pair of bands that boost and cut less than 1/3 octave apart, if any. */
+    fun conflict(filters: List<EqFilter>): Pair<Int, Int>? {
+        for (i in filters.indices) for (j in i + 1 until filters.size) {
+            val a = filters[i]
+            val b = filters[j]
+            if (close(a, b) && a.gainDb * b.gainDb < 0) return i to j
+        }
+        return null
     }
 
     /**

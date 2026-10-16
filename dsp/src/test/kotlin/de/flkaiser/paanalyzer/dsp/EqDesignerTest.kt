@@ -100,6 +100,8 @@ class EqDesignerTest {
         assertTrue(s.filters.size <= 6)
         assertTrue(s.rmsAfterDb < 0.4 * s.rmsBeforeDb, "before ${s.rmsBeforeDb}, after ${s.rmsAfterDb}")
         assertTrue(s.filters.all { abs(it.gainDb) >= 1.0 }, "no bands that do (almost) nothing: ${s.filters}")
+        assertTrue(s.filters.count { it.type == FilterType.LOW_SHELF } <= 1 && s.filters.count { it.type == FilterType.HIGH_SHELF } <= 1)
+        assertNull(EqDesigner.conflict(s.filters), "no boost and cut on top of each other: ${s.filters}")
         // The prediction is the measurement plus the EQ.
         for (i in grid.indices) assertEquals(s.measuredDb[i] + s.eqDb[i], s.predictedDb[i], 1e-9)
     }
@@ -129,6 +131,24 @@ class EqDesignerTest {
         assertEquals(2, few.filters.size)
         assertTrue(many.filters.size >= 5, "five resonances need five bands: ${many.filters}")
         assertTrue(many.rmsAfterDb < few.rmsAfterDb)
+    }
+
+    @Test
+    fun moreBandsNeverMakeItWorse() {
+        val r = response(
+            EqFilter(FilterType.LOW_SHELF, 120.0, 3.0),
+            EqFilter(FilterType.PEAK, 85.0, -3.0, 2.0),
+            EqFilter(FilterType.PEAK, 400.0, -3.0, 2.0),
+            EqFilter(FilterType.PEAK, 2_500.0, 4.0, 1.5),
+        )
+        var previous = Double.MAX_VALUE
+        for (count in 1..8) {
+            val s = design(r, EqSettings(filterCount = count))
+            assertTrue(s.filters.size <= count)
+            assertTrue(s.rmsAfterDb <= previous + 0.05, "$count bands: ${s.rmsAfterDb} dB, fewer bands gave $previous dB")
+            assertNull(EqDesigner.conflict(s.filters), "no boost and cut on top of each other: ${s.filters}")
+            previous = minOf(previous, s.rmsAfterDb)
+        }
     }
 
     @Test
