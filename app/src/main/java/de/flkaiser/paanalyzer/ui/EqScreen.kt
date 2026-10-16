@@ -96,7 +96,7 @@ fun EqScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
                     FilterList(suggestion, current.name)
                 }
                 state.eqError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Controls(state.eqSettings, viewModel)
+                Controls(state.eqSettings, state.eqSuggestion, viewModel)
                 Caveat()
             }
         }
@@ -112,7 +112,7 @@ fun EqScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
                 FilterList(suggestion, current.name)
             }
             state.eqError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Controls(state.eqSettings, viewModel)
+            Controls(state.eqSettings, state.eqSuggestion, viewModel)
             Caveat()
         }
     }
@@ -181,7 +181,8 @@ private fun FilterList(s: EqSuggestion, name: String) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 "Deviation from target ${EqDesigner.formatHz(s.correctedFromHz)} – ${EqDesigner.formatHz(s.correctedToHz)}: " +
-                    String.format(Locale.getDefault(), "±%.1f dB → ±%.1f dB", s.rmsBeforeDb, s.rmsAfterDb),
+                    String.format(Locale.getDefault(), "±%.1f dB → ±%.1f dB", s.rmsBeforeDb, s.rmsAfterDb) +
+                    " · ${s.filters.size} of ${s.settings.filterCount} bands",
                 style = MaterialTheme.typography.bodySmall,
             )
             s.highPass?.let {
@@ -222,7 +223,7 @@ private fun FilterRow(number: String, type: String, frequency: String, gain: Str
 }
 
 @Composable
-private fun Controls(settings: EqSettings, viewModel: AppActions) {
+private fun Controls(settings: EqSettings, suggestion: EqSuggestion?, viewModel: AppActions) {
     var minHz by remember(settings.minHz) { mutableStateOf(SettingsForm.format(settings.minHz)) }
     var maxHz by remember(settings.maxHz) { mutableStateOf(SettingsForm.format(settings.maxHz)) }
     fun applyRange(lo: String, hi: String) {
@@ -233,6 +234,12 @@ private fun Controls(settings: EqSettings, viewModel: AppActions) {
     }
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("EQ settings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Changes apply immediately: the suggestion and chart above update.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Choice("Target", EqTarget.entries, settings.target, { it.label }, enabled = true) {
                 viewModel.updateEqSettings(settings.copy(target = it))
             }
@@ -249,6 +256,7 @@ private fun Controls(settings: EqSettings, viewModel: AppActions) {
                     enabled = settings.filterCount < EqSettings.MAX_FILTERS,
                 ) { Text("+") }
             }
+            suggestion?.let { BandUsage(it) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField("Correct from", minHz, "Hz", enabled = true, modifier = Modifier.weight(1f)) {
@@ -273,6 +281,20 @@ private fun Controls(settings: EqSettings, viewModel: AppActions) {
             TextButton(onClick = { viewModel.updateEqSettings(EqSettings()) }) { Text("Reset EQ settings") }
         }
     }
+}
+
+/** Explains why the number of suggested bands can be lower than the number allowed. */
+@Composable
+private fun BandUsage(s: EqSuggestion) {
+    val used = s.filters.size
+    val allowed = s.settings.filterCount
+    val text = when {
+        used == allowed -> "Uses all $allowed bands. More bands may bring the response closer to the target."
+        used == 0 -> "No bands needed: the response is already within about 1 dB of the target."
+        else -> "Uses $used of $allowed bands: further bands would change the result by less than about 1 dB, so they are left out. " +
+            "A stricter target needs a wider range, more boost or a different target curve."
+    }
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable

@@ -95,6 +95,8 @@ object EqDesigner {
     private const val MAX_Q = 8.0
     private const val MIN_USEFUL_GAIN_DB = 1.0
     private const val BOOST_LIMIT_DB = -3.0
+    /** A further band must reduce the (weighted) error by at least this fraction to be added. */
+    private const val MIN_IMPROVEMENT = 0.03
     private val ROLL_OFF_MARGIN = sqrt(2.0)
     /** Weight of exceeding the boost/cut limits with the combined EQ (several bands at the same spot). */
     private const val LIMIT_PENALTY = 20.0
@@ -167,7 +169,7 @@ object EqDesigner {
                 .minByOrNull { model.cost(it) } ?: break
             val newCost = model.cost(candidate)
             // Stop when another band would hardly help.
-            if (newCost > cost * 0.92 || model.rms(filters) < 0.4) break
+            if (newCost > cost * (1 - MIN_IMPROVEMENT) || model.rms(filters) < 0.25) break
             filters = candidate.toMutableList()
             cost = newCost
         }

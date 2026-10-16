@@ -116,6 +116,22 @@ class EqDesignerTest {
     }
 
     @Test
+    fun usesTheAllowedBandsWhenTheyHelp() {
+        val r = response(
+            EqFilter(FilterType.PEAK, 70.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 180.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 600.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 2_000.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 6_000.0, 4.0, 3.0),
+        )
+        val few = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, filterCount = 2))
+        val many = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, filterCount = 6))
+        assertEquals(2, few.filters.size)
+        assertTrue(many.filters.size >= 5, "five resonances need five bands: ${many.filters}")
+        assertTrue(many.rmsAfterDb < few.rmsAfterDb)
+    }
+
+    @Test
     fun suggestsAHighPassWhereTheSpeakerRollsOff() {
         val r = response(highPass = HighPassSuggestion(70.0, slopeDbPerOctave = 12))
         val s = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0))
