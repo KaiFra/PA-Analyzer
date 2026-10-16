@@ -40,16 +40,22 @@ data class EqSettings(
     val maxBoostDb: Double = 3.0,
     val maxCutDb: Double = 12.0,
     val suggestHighPass: Boolean = true,
+    /** Band types the mixer offers (or that should be used); the high-pass is switched by [suggestHighPass]. */
+    val filterTypes: Set<FilterType> = FilterType.entries.toSet(),
 ) {
     fun validate(): List<String> = buildList {
         if (filterCount !in 1..MAX_FILTERS) add("Number of filters must be between 1 and $MAX_FILTERS.")
         if (minHz < 10.0 || maxHz > 22_000.0 || maxHz < minHz * 2) add("The correction range must span at least an octave within 10 Hz – 22 kHz.")
-        if (maxBoostDb !in 0.0..12.0) add("Maximum boost must be between 0 and 12 dB.")
-        if (maxCutDb !in 1.0..24.0) add("Maximum cut must be between 1 and 24 dB.")
+        if (maxBoostDb !in 0.0..MAX_BOOST_DB) add("Maximum boost must be between 0 and ${MAX_BOOST_DB.toInt()} dB.")
+        if (maxCutDb !in MIN_CUT_DB..MAX_CUT_DB) add("Maximum cut must be between ${MIN_CUT_DB.toInt()} and ${MAX_CUT_DB.toInt()} dB.")
+        if (filterTypes.isEmpty()) add("Enable at least one filter type.")
     }
 
     companion object {
         const val MAX_FILTERS = 12
+        const val MAX_BOOST_DB = 12.0
+        const val MIN_CUT_DB = 1.0
+        const val MAX_CUT_DB = 24.0
     }
 }
 
@@ -161,7 +167,7 @@ object EqDesigner {
 
         // Greedy: add the filter that helps most (without boosting and cutting on top of each other).
         var filters = listOf<EqFilter>()
-        val limits = Limits(from, to, settings.maxBoostDb, settings.maxCutDb)
+        val limits = Limits(from, to, settings.maxBoostDb, settings.maxCutDb, settings.filterTypes, lowShelfBoost = highPass != null)
         var cost = model.cost(filters)
         val steps = mutableListOf(filters)
         for (k in 0 until settings.filterCount) {
@@ -249,9 +255,17 @@ object EqDesigner {
         return null
     }
 
-    private class Limits(val fromHz: Double, val toHz: Double, val maxBoostDb: Double, val maxCutDb: Double) {
-        /** A low shelf only cuts: boosting it would push everything below the corner, down to the speaker's excursion limit. */
-        fun gain(g: Double, type: FilterType) = g.coerceIn(-maxCutDb, if (type == FilterType.LOW_SHELF) 0.0 else maxBoostDb)
+    private class Limits(
+        val fromHz: Double,
+        val toHz: Double,
+        val maxBoostDb: Double,
+        val maxCutDb: Double,
+        val types: Set<FilterType>,
+        /** Without a high-pass, a low-shelf boost lifts everything below the corner, down to the speaker's excursion limit. */
+        val lowShelfBoost: Boolean,
+    ) {
+        fun gain(g: Double, type: FilterType) =
+            g.coerceIn(-maxCutDb, if (type == FilterType.LOW_SHELF && !lowShelfBoost) 0.0 else maxBoostDb)
         fun frequency(f: Double) = f.coerceIn(fromHz, toHz)
         fun q(q: Double) = q.coerceIn(MIN_Q, MAX_Q)
     }
@@ -363,7 +377,7 @@ object EqDesigner {
                 result += EqFilter(FilterType.HIGH_SHELF, highCorner, limits.gain(-above.sumOf { e[it] } / above.size, FilterType.HIGH_SHELF))
             }
         }
-        return result
+        return result.filter { it.type in limits.types }
     }
 
     /**

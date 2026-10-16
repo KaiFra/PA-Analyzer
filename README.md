@@ -41,14 +41,16 @@ Bluetooth latency doesn't matter: the app finds the sweep in the recording itsel
 
 The **EQ** page turns the current measurement into filter settings for a mixer or speaker processor:
 
-- Pick a **target** (flat, gentle tilt, or live with more bass), the number of **bands** your mixer has, the **range** to correct and the maximum **boost** and **cut**.
+- Pick a **target** (flat, gentle tilt, or live with more bass), the number of **bands** your mixer has, the **filter types** it offers (bell, low shelf, high shelf, high-pass), the **range** to correct and the maximum **boost** (0–12 dB) and **cut** (1–24 dB), with a slider or by typing the value. Changes apply immediately.
 - The app suggests bells and shelves with frequency, gain and Q (plus bandwidth in octaves, for mixers that use it), rounded to values you can dial in, and shows the measured response, the EQ, and the expected result.
 - Where the speaker rolls off in the bass it suggests a **high-pass** (24 dB/oct Linkwitz-Riley) and never boosts there; boosts are limited (+3 dB by default) because filling dips costs headroom and room cancellations can't be filled anyway. Peaks are cut first.
 - **Copy** or **Share** gives a text version with an Equalizer APO / REW section.
 
-How it works: the response is smoothed to 1/6 octave and aligned with the target in the mid band (median, so a single resonance doesn't shift it). Filters are added one at a time where they help most and then optimized together within the limits (the combined EQ, not only each band, must respect them). The number of bands is a maximum: a band is only added if it clearly improves the result, more allowed bands never give a worse result, and the low shelf only cuts (no extra excursion below the speaker's range), there is at most one low and one high shelf, and never a boost and a cut on top of each other.
+How it works: the response is smoothed to 1/6 octave and aligned with the target in the mid band (median, so a single resonance doesn't shift it). Filters are added one at a time where they help most and then optimized together within the limits (the combined EQ, not only each band, must respect them). The number of bands is a maximum: a band is only added if it clearly improves the result, more allowed bands never give a worse result, and a low shelf only boosts together with the high-pass (no extra excursion below the speaker's range), there is at most one low and one high shelf, and never a boost and a cut on top of each other.
 
 The suggestion is only as good as the measurement: measure where the audience is, apply the filters, and measure again.
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
 ## Settings
 

@@ -152,6 +152,32 @@ class EqDesignerTest {
     }
 
     @Test
+    fun usesOnlyTheEnabledFilterTypes() {
+        val r = response(
+            EqFilter(FilterType.LOW_SHELF, 150.0, 4.0),
+            EqFilter(FilterType.PEAK, 1_000.0, 5.0, 2.0),
+            EqFilter(FilterType.HIGH_SHELF, 5_000.0, -4.0),
+        )
+        val bells = design(r, EqSettings(filterTypes = setOf(FilterType.PEAK)))
+        assertTrue(bells.filters.isNotEmpty() && bells.filters.all { it.type == FilterType.PEAK }, "${bells.filters}")
+        val shelves = design(r, EqSettings(filterTypes = setOf(FilterType.LOW_SHELF, FilterType.HIGH_SHELF)))
+        assertTrue(shelves.filters.isNotEmpty() && shelves.filters.none { it.type == FilterType.PEAK }, "${shelves.filters}")
+        assertTrue(EqSettings(filterTypes = emptySet()).validate().isNotEmpty())
+    }
+
+    @Test
+    fun allowsLargerBoostsWhenAsked() {
+        // A broad 8 dB dip: the default +3 dB limit only fills part of it.
+        val r = response(EqFilter(FilterType.PEAK, 500.0, -8.0, 1.0))
+        val careful = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0))
+        val generous = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, maxBoostDb = 9.5))
+        assertTrue(careful.filters.maxOf { it.gainDb } <= 3.0)
+        assertTrue(generous.filters.maxOf { it.gainDb } > 5.0, "${generous.filters}")
+        assertTrue(generous.rmsAfterDb < careful.rmsAfterDb)
+        assertCombinedWithinLimits(generous)
+    }
+
+    @Test
     fun suggestsAHighPassWhereTheSpeakerRollsOff() {
         val r = response(highPass = HighPassSuggestion(70.0, slopeDbPerOctave = 12))
         val s = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0))

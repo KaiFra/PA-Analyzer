@@ -30,7 +30,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.runtime.LaunchedEffect
+import kotlin.math.roundToInt
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -268,17 +273,87 @@ private fun Controls(settings: EqSettings, suggestion: EqSuggestion?, viewModel:
                     applyRange(minHz, it)
                 }
             }
-            Choice("Maximum boost", listOf(0.0, 3.0, 6.0), settings.maxBoostDb, { "+${it.toInt()} dB" }, enabled = true) {
+            DbLimit("Maximum boost", settings.maxBoostDb, 0.0..EqSettings.MAX_BOOST_DB, sign = "+") {
                 viewModel.updateEqSettings(settings.copy(maxBoostDb = it))
             }
-            Choice("Maximum cut", listOf(6.0, 12.0, 18.0), settings.maxCutDb, { "−${it.toInt()} dB" }, enabled = true) {
+            Text(
+                "Every dB of boost costs a dB of headroom, and dips from room reflections can't be filled; +3 dB is a careful start.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            DbLimit("Maximum cut", settings.maxCutDb, EqSettings.MIN_CUT_DB..EqSettings.MAX_CUT_DB, sign = "−") {
                 viewModel.updateEqSettings(settings.copy(maxCutDb = it))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Suggest a high-pass at the bass roll-off", modifier = Modifier.weight(1f))
-                Switch(checked = settings.suggestHighPass, onCheckedChange = { viewModel.updateEqSettings(settings.copy(suggestHighPass = it)) })
+
+            Text("Filter types", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (type in FilterType.entries) {
+                    val on = type in settings.filterTypes
+                    FilterChip(
+                        selected = on,
+                        onClick = { viewModel.updateEqSettings(settings.copy(filterTypes = if (on) settings.filterTypes - type else settings.filterTypes + type)) },
+                        label = { Text(type.label) },
+                        // At least one band type stays enabled.
+                        enabled = !on || settings.filterTypes.size > 1,
+                    )
+                }
+                FilterChip(
+                    selected = settings.suggestHighPass,
+                    onClick = { viewModel.updateEqSettings(settings.copy(suggestHighPass = !settings.suggestHighPass)) },
+                    label = { Text("High-pass") },
+                )
             }
+            Text(
+                "Only enabled types are suggested. The high-pass is placed at the bass roll-off; a low shelf only boosts " +
+                    "when the high-pass is used, so the boost doesn't reach below the speaker's range.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             TextButton(onClick = { viewModel.updateEqSettings(EqSettings()) }) { Text("Reset EQ settings") }
+        }
+    }
+}
+
+/** Boost or cut limit: a slider in 0.5 dB steps plus a field for typing the value. */
+@Composable
+private fun DbLimit(label: String, value: Double, range: ClosedFloatingPointRange<Double>, sign: String, onChange: (Double) -> Unit) {
+    fun snap(v: Float) = (v * 2).roundToInt() / 2.0
+    fun parse(t: String) = t.trim().replace(',', '.').toDoubleOrNull()
+    var text by remember { mutableStateOf(SettingsForm.format(value)) }
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    // Follow outside changes (reset, slider) without overwriting what is being typed.
+    LaunchedEffect(value) { if (parse(text) != value) text = SettingsForm.format(value) }
+    Column {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Slider(
+                value = dragging ?: value.toFloat(),
+                onValueChange = {
+                    dragging = it
+                    text = SettingsForm.format(snap(it))
+                },
+                // Re-designing the EQ takes a moment, so only the final position is applied.
+                onValueChangeFinished = {
+                    dragging?.let { onChange(snap(it)) }
+                    dragging = null
+                },
+                valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
+                steps = ((range.endInclusive - range.start) * 2).roundToInt() - 1,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                value = text,
+                onValueChange = { t ->
+                    text = t
+                    parse(t)?.takeIf { it in range && it != value }?.let(onChange)
+                },
+                prefix = { Text(sign) },
+                suffix = { Text("dB") },
+                singleLine = true,
+                isError = parse(text)?.let { it !in range } ?: true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.width(112.dp),
+            )
         }
     }
 }
