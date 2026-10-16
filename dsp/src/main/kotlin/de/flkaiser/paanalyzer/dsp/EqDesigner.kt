@@ -250,7 +250,8 @@ object EqDesigner {
     }
 
     private class Limits(val fromHz: Double, val toHz: Double, val maxBoostDb: Double, val maxCutDb: Double) {
-        fun gain(g: Double) = g.coerceIn(-maxCutDb, maxBoostDb)
+        /** A low shelf only cuts: boosting it would push everything below the corner, down to the speaker's excursion limit. */
+        fun gain(g: Double, type: FilterType) = g.coerceIn(-maxCutDb, if (type == FilterType.LOW_SHELF) 0.0 else maxBoostDb)
         fun frequency(f: Double) = f.coerceIn(fromHz, toHz)
         fun q(q: Double) = q.coerceIn(MIN_Q, MAX_Q)
     }
@@ -345,7 +346,7 @@ object EqDesigner {
             var hi = peak
             while (hi < range.last() && e[hi + 1] * level > 0 && abs(e[hi + 1]) > abs(level) / 2) hi++
             val q = limits.q(f[peak] / max(f[hi] - f[lo], f[peak] / 20))
-            result += EqFilter(FilterType.PEAK, f[peak], limits.gain(-level), q)
+            result += EqFilter(FilterType.PEAK, f[peak], limits.gain(-level, FilterType.PEAK), q)
         }
         // Like on most mixers: at most one low shelf and one high shelf.
         val hasLowShelf = filters.any { it.type == FilterType.LOW_SHELF }
@@ -354,12 +355,12 @@ object EqDesigner {
             val lowCorner = limits.frequency(limits.fromHz * 2.0.pow(octaves))
             val below = range.filter { f[it] <= lowCorner }
             if (!hasLowShelf && below.isNotEmpty()) {
-                result += EqFilter(FilterType.LOW_SHELF, lowCorner, limits.gain(-below.sumOf { e[it] } / below.size))
+                result += EqFilter(FilterType.LOW_SHELF, lowCorner, limits.gain(-below.sumOf { e[it] } / below.size, FilterType.LOW_SHELF))
             }
             val highCorner = limits.frequency(limits.toHz / 2.0.pow(octaves))
             val above = range.filter { f[it] >= highCorner }
             if (!hasHighShelf && above.isNotEmpty()) {
-                result += EqFilter(FilterType.HIGH_SHELF, highCorner, limits.gain(-above.sumOf { e[it] } / above.size))
+                result += EqFilter(FilterType.HIGH_SHELF, highCorner, limits.gain(-above.sumOf { e[it] } / above.size, FilterType.HIGH_SHELF))
             }
         }
         return result
@@ -427,7 +428,7 @@ object EqDesigner {
                 val moves = buildList {
                     for (s in listOf(1.0, -1.0)) {
                         add(filters[i].copy(frequencyHz = limits.frequency(filters[i].frequencyHz * exp(s * fStep))))
-                        add(filters[i].copy(gainDb = limits.gain(filters[i].gainDb + s * gStep)))
+                        add(filters[i].copy(gainDb = limits.gain(filters[i].gainDb + s * gStep, filters[i].type)))
                         if (filters[i].type == FilterType.PEAK) add(filters[i].copy(q = limits.q(filters[i].q * exp(s * qStep))))
                     }
                 }
@@ -454,7 +455,7 @@ object EqDesigner {
 
     private fun roundFilter(filter: EqFilter, limits: Limits) = filter.copy(
         frequencyHz = roundSignificant(filter.frequencyHz, 3),
-        gainDb = limits.gain(round(filter.gainDb * 2) / 2),
+        gainDb = limits.gain(round(filter.gainDb * 2) / 2, filter.type),
         q = if (filter.type == FilterType.PEAK) roundSignificant(filter.q, 2) else filter.q,
     )
 

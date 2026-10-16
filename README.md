@@ -46,7 +46,7 @@ The **EQ** page turns the current measurement into filter settings for a mixer o
 - Where the speaker rolls off in the bass it suggests a **high-pass** (24 dB/oct Linkwitz-Riley) and never boosts there; boosts are limited (+3 dB by default) because filling dips costs headroom and room cancellations can't be filled anyway. Peaks are cut first.
 - **Copy** or **Share** gives a text version with an Equalizer APO / REW section.
 
-How it works: the response is smoothed to 1/6 octave and aligned with the target in the mid band (median, so a single resonance doesn't shift it). Filters are added one at a time where they help most and then optimized together within the limits (the combined EQ, not only each band, must respect them). The number of bands is a maximum: a band is only added if it clearly improves the result, more allowed bands never give a worse result, and there is at most one low and one high shelf and never a boost and a cut on top of each other.
+How it works: the response is smoothed to 1/6 octave and aligned with the target in the mid band (median, so a single resonance doesn't shift it). Filters are added one at a time where they help most and then optimized together within the limits (the combined EQ, not only each band, must respect them). The number of bands is a maximum: a band is only added if it clearly improves the result, more allowed bands never give a worse result, and the low shelf only cuts (no extra excursion below the speaker's range), there is at most one low and one high shelf, and never a boost and a cut on top of each other.
 
 The suggestion is only as good as the measurement: measure where the audience is, apply the filters, and measure again.
 
