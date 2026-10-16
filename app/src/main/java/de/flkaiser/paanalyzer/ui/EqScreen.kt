@@ -30,7 +30,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Slider
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.runtime.LaunchedEffect
+import kotlin.math.roundToInt
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -96,7 +101,7 @@ fun EqScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
                     FilterList(suggestion, current.name)
                 }
                 state.eqError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Controls(state.eqSettings, viewModel)
+                Controls(state.eqSettings, state.eqSuggestion, viewModel)
                 Caveat()
             }
         }
@@ -112,7 +117,7 @@ fun EqScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
                 FilterList(suggestion, current.name)
             }
             state.eqError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Controls(state.eqSettings, viewModel)
+            Controls(state.eqSettings, state.eqSuggestion, viewModel)
             Caveat()
         }
     }
@@ -181,7 +186,8 @@ private fun FilterList(s: EqSuggestion, name: String) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 "Deviation from target ${EqDesigner.formatHz(s.correctedFromHz)} – ${EqDesigner.formatHz(s.correctedToHz)}: " +
-                    String.format(Locale.getDefault(), "±%.1f dB → ±%.1f dB", s.rmsBeforeDb, s.rmsAfterDb),
+                    String.format(Locale.getDefault(), "±%.1f dB → ±%.1f dB", s.rmsBeforeDb, s.rmsAfterDb) +
+                    " · ${s.filters.size} of ${s.settings.filterCount} bands",
                 style = MaterialTheme.typography.bodySmall,
             )
             s.highPass?.let {
@@ -222,7 +228,7 @@ private fun FilterRow(number: String, type: String, frequency: String, gain: Str
 }
 
 @Composable
-private fun Controls(settings: EqSettings, viewModel: AppActions) {
+private fun Controls(settings: EqSettings, suggestion: EqSuggestion?, viewModel: AppActions) {
     var minHz by remember(settings.minHz) { mutableStateOf(SettingsForm.format(settings.minHz)) }
     var maxHz by remember(settings.maxHz) { mutableStateOf(SettingsForm.format(settings.maxHz)) }
     fun applyRange(lo: String, hi: String) {
@@ -233,6 +239,12 @@ private fun Controls(settings: EqSettings, viewModel: AppActions) {
     }
     Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("EQ settings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Changes apply immediately: the suggestion and chart above update.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Choice("Target", EqTarget.entries, settings.target, { it.label }, enabled = true) {
                 viewModel.updateEqSettings(settings.copy(target = it))
             }
@@ -249,6 +261,7 @@ private fun Controls(settings: EqSettings, viewModel: AppActions) {
                     enabled = settings.filterCount < EqSettings.MAX_FILTERS,
                 ) { Text("+") }
             }
+            suggestion?.let { BandUsage(it) }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NumberField("Correct from", minHz, "Hz", enabled = true, modifier = Modifier.weight(1f)) {
@@ -260,19 +273,103 @@ private fun Controls(settings: EqSettings, viewModel: AppActions) {
                     applyRange(minHz, it)
                 }
             }
-            Choice("Maximum boost", listOf(0.0, 3.0, 6.0), settings.maxBoostDb, { "+${it.toInt()} dB" }, enabled = true) {
+            DbLimit("Maximum boost", settings.maxBoostDb, 0.0..EqSettings.MAX_BOOST_DB, sign = "+") {
                 viewModel.updateEqSettings(settings.copy(maxBoostDb = it))
             }
-            Choice("Maximum cut", listOf(6.0, 12.0, 18.0), settings.maxCutDb, { "−${it.toInt()} dB" }, enabled = true) {
+            Text(
+                "Every dB of boost costs a dB of headroom, and dips from room reflections can't be filled; +3 dB is a careful start.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            DbLimit("Maximum cut", settings.maxCutDb, EqSettings.MIN_CUT_DB..EqSettings.MAX_CUT_DB, sign = "−") {
                 viewModel.updateEqSettings(settings.copy(maxCutDb = it))
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Suggest a high-pass at the bass roll-off", modifier = Modifier.weight(1f))
-                Switch(checked = settings.suggestHighPass, onCheckedChange = { viewModel.updateEqSettings(settings.copy(suggestHighPass = it)) })
+
+            Text("Filter types", style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (type in FilterType.entries) {
+                    val on = type in settings.filterTypes
+                    FilterChip(
+                        selected = on,
+                        onClick = { viewModel.updateEqSettings(settings.copy(filterTypes = if (on) settings.filterTypes - type else settings.filterTypes + type)) },
+                        label = { Text(type.label) },
+                        // At least one band type stays enabled.
+                        enabled = !on || settings.filterTypes.size > 1,
+                    )
+                }
+                FilterChip(
+                    selected = settings.suggestHighPass,
+                    onClick = { viewModel.updateEqSettings(settings.copy(suggestHighPass = !settings.suggestHighPass)) },
+                    label = { Text("High-pass") },
+                )
             }
+            Text(
+                "Only enabled types are suggested. The high-pass is placed at the bass roll-off; a low shelf only boosts " +
+                    "when the high-pass is used, so the boost doesn't reach below the speaker's range.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             TextButton(onClick = { viewModel.updateEqSettings(EqSettings()) }) { Text("Reset EQ settings") }
         }
     }
+}
+
+/** Boost or cut limit: a slider in 0.5 dB steps plus a field for typing the value. */
+@Composable
+private fun DbLimit(label: String, value: Double, range: ClosedFloatingPointRange<Double>, sign: String, onChange: (Double) -> Unit) {
+    fun snap(v: Float) = (v * 2).roundToInt() / 2.0
+    fun parse(t: String) = t.trim().replace(',', '.').toDoubleOrNull()
+    var text by remember { mutableStateOf(SettingsForm.format(value)) }
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    // Follow outside changes (reset, slider) without overwriting what is being typed.
+    LaunchedEffect(value) { if (parse(text) != value) text = SettingsForm.format(value) }
+    Column {
+        Text(label, style = MaterialTheme.typography.labelLarge)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Slider(
+                value = dragging ?: value.toFloat(),
+                onValueChange = {
+                    dragging = it
+                    text = SettingsForm.format(snap(it))
+                },
+                // Re-designing the EQ takes a moment, so only the final position is applied.
+                onValueChangeFinished = {
+                    dragging?.let { onChange(snap(it)) }
+                    dragging = null
+                },
+                valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
+                steps = ((range.endInclusive - range.start) * 2).roundToInt() - 1,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedTextField(
+                value = text,
+                onValueChange = { t ->
+                    text = t
+                    parse(t)?.takeIf { it in range && it != value }?.let(onChange)
+                },
+                prefix = { Text(sign) },
+                suffix = { Text("dB") },
+                singleLine = true,
+                isError = parse(text)?.let { it !in range } ?: true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                modifier = Modifier.width(112.dp),
+            )
+        }
+    }
+}
+
+/** Explains why the number of suggested bands can be lower than the number allowed. */
+@Composable
+private fun BandUsage(s: EqSuggestion) {
+    val used = s.filters.size
+    val allowed = s.settings.filterCount
+    val text = when {
+        used == allowed -> "Uses all $allowed bands. More bands may bring the response closer to the target."
+        used == 0 -> "No bands needed: the response is already within about 1 dB of the target."
+        else -> "Uses $used of $allowed bands: further bands would change the result by less than about 1 dB, so they are left out. " +
+            "A stricter target needs a wider range, more boost or a different target curve."
+    }
+    Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable

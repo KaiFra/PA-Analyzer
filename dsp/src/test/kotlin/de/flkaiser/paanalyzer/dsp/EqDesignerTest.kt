@@ -100,6 +100,8 @@ class EqDesignerTest {
         assertTrue(s.filters.size <= 6)
         assertTrue(s.rmsAfterDb < 0.4 * s.rmsBeforeDb, "before ${s.rmsBeforeDb}, after ${s.rmsAfterDb}")
         assertTrue(s.filters.all { abs(it.gainDb) >= 1.0 }, "no bands that do (almost) nothing: ${s.filters}")
+        assertTrue(s.filters.count { it.type == FilterType.LOW_SHELF } <= 1 && s.filters.count { it.type == FilterType.HIGH_SHELF } <= 1)
+        assertNull(EqDesigner.conflict(s.filters), "no boost and cut on top of each other: ${s.filters}")
         // The prediction is the measurement plus the EQ.
         for (i in grid.indices) assertEquals(s.measuredDb[i] + s.eqDb[i], s.predictedDb[i], 1e-9)
     }
@@ -113,6 +115,66 @@ class EqDesignerTest {
             EqFilter(FilterType.PEAK, 3_000.0, 5.0, 3.0),
         )
         assertTrue(design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, filterCount = 2)).filters.size <= 2)
+    }
+
+    @Test
+    fun usesTheAllowedBandsWhenTheyHelp() {
+        val r = response(
+            EqFilter(FilterType.PEAK, 70.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 180.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 600.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 2_000.0, 4.0, 3.0),
+            EqFilter(FilterType.PEAK, 6_000.0, 4.0, 3.0),
+        )
+        val few = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, filterCount = 2))
+        val many = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, filterCount = 6))
+        assertEquals(2, few.filters.size)
+        assertTrue(many.filters.size >= 5, "five resonances need five bands: ${many.filters}")
+        assertTrue(many.rmsAfterDb < few.rmsAfterDb)
+    }
+
+    @Test
+    fun moreBandsNeverMakeItWorse() {
+        val r = response(
+            EqFilter(FilterType.LOW_SHELF, 120.0, 3.0),
+            EqFilter(FilterType.PEAK, 85.0, -3.0, 2.0),
+            EqFilter(FilterType.PEAK, 400.0, -3.0, 2.0),
+            EqFilter(FilterType.PEAK, 2_500.0, 4.0, 1.5),
+        )
+        var previous = Double.MAX_VALUE
+        for (count in 1..8) {
+            val s = design(r, EqSettings(filterCount = count))
+            assertTrue(s.filters.size <= count)
+            assertTrue(s.rmsAfterDb <= previous + 0.05, "$count bands: ${s.rmsAfterDb} dB, fewer bands gave $previous dB")
+            assertNull(EqDesigner.conflict(s.filters), "no boost and cut on top of each other: ${s.filters}")
+            previous = minOf(previous, s.rmsAfterDb)
+        }
+    }
+
+    @Test
+    fun usesOnlyTheEnabledFilterTypes() {
+        val r = response(
+            EqFilter(FilterType.LOW_SHELF, 150.0, 4.0),
+            EqFilter(FilterType.PEAK, 1_000.0, 5.0, 2.0),
+            EqFilter(FilterType.HIGH_SHELF, 5_000.0, -4.0),
+        )
+        val bells = design(r, EqSettings(filterTypes = setOf(FilterType.PEAK)))
+        assertTrue(bells.filters.isNotEmpty() && bells.filters.all { it.type == FilterType.PEAK }, "${bells.filters}")
+        val shelves = design(r, EqSettings(filterTypes = setOf(FilterType.LOW_SHELF, FilterType.HIGH_SHELF)))
+        assertTrue(shelves.filters.isNotEmpty() && shelves.filters.none { it.type == FilterType.PEAK }, "${shelves.filters}")
+        assertTrue(EqSettings(filterTypes = emptySet()).validate().isNotEmpty())
+    }
+
+    @Test
+    fun allowsLargerBoostsWhenAsked() {
+        // An 8 dB dip: the default +3 dB limit only fills part of it.
+        val r = response(EqFilter(FilterType.PEAK, 500.0, -8.0, 3.0))
+        val careful = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0))
+        val generous = design(r, EqSettings(minHz = 20.0, maxHz = 20_000.0, maxBoostDb = 9.5))
+        assertTrue(careful.filters.maxOf { it.gainDb } <= 3.0)
+        assertTrue(generous.filters.maxOf { it.gainDb } > 5.0, "${generous.filters}")
+        assertTrue(generous.rmsAfterDb < careful.rmsAfterDb)
+        assertCombinedWithinLimits(generous)
     }
 
     @Test
