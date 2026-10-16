@@ -1,10 +1,10 @@
 name: CI
 
 on:
+  # Every branch push runs CI; its checks show up on the branch's pull request.
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
-  pull_request:
   workflow_dispatch:
     inputs:
       release_tag:
@@ -90,8 +90,9 @@ jobs:
             app/build/reports/
           if-no-files-found: ignore
 
+      # On branch pushes, changed screenshots are committed to that branch (so pull requests show them).
       - name: Commit updated screenshots
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
         run: |
           git add docs/screenshots
           if git diff --cached --quiet; then
@@ -141,7 +142,7 @@ jobs:
         run: |
           export VERSION_NAME="${VERSION_NAME#v}"
           ./gradlew --console=plain :app:assembleRelease 2>&1 | tee -a gradle.log
-          version="${VERSION_NAME:-0.1.0-${GITHUB_RUN_NUMBER}}"
+          version="${VERSION_NAME:-$(grep -oP '\?: "\K[0-9.]+(?=")' app/build.gradle.kts | head -1)-${GITHUB_RUN_NUMBER}}"
           mkdir -p dist
           cp app/build/outputs/apk/release/app-release.apk "dist/PA-Analyzer-${version#v}-arm64.apk"
 

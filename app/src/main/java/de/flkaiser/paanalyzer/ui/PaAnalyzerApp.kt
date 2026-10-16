@@ -42,6 +42,7 @@ private data class Destination(val page: Page, val label: String, val icon: Imag
 private val DESTINATIONS = listOf(
     Destination(Page.MEASURE, "Measure", Icons.Filled.PlayArrow),
     Destination(Page.RESULTS, "Results", ResultsIcon),
+    Destination(Page.EQ, "EQ", EqIcon),
     Destination(Page.SETTINGS, "Settings", Icons.Filled.Settings),
 )
 
@@ -72,6 +73,7 @@ fun AppScaffold(state: UiState, viewModel: AppActions) {
         when (state.page) {
             Page.MEASURE -> MeasureScreen(state, viewModel)
             Page.RESULTS -> ResultsScreen(state, viewModel, landscape)
+            Page.EQ -> EqScreen(state, viewModel, landscape)
             Page.SETTINGS -> SettingsScreen(state, viewModel)
         }
     }

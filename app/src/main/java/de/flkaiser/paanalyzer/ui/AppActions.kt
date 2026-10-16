@@ -3,6 +3,7 @@ package de.flkaiser.paanalyzer.ui
 import android.net.Uri
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
+import de.flkaiser.paanalyzer.dsp.EqSettings
 import de.flkaiser.paanalyzer.settings.SettingsForm
 
 /** Everything the screens can ask for. Implemented by [MeasurementViewModel]; screenshot tests use a no-op. */
@@ -26,6 +27,9 @@ interface AppActions {
 
     /** Evaluates the current measurement's recording again with other analysis settings. */
     fun reanalyze(analysis: AnalysisSettings)
+
+    /** Changes the EQ suggestion settings; the suggestion is recomputed automatically. */
+    fun updateEqSettings(settings: EqSettings)
 
     /** The current measurement as files for sharing, or null if none is open. */
     fun exportCurrent(): ExportData?

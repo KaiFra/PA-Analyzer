@@ -38,3 +38,25 @@ val ResultsIcon: ImageVector = ImageVector.Builder(
         curveTo(18f, 15f, 18.5f, 10f, 20f, 10f)
     }
 }.build()
+
+/** Three mixer faders, for the EQ destination. */
+val EqIcon: ImageVector = ImageVector.Builder(
+    name = "Eq",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).apply {
+    // Fader tracks.
+    path(stroke = SolidColor(Color.Black), strokeLineWidth = 2f, strokeLineCap = StrokeCap.Round) {
+        moveTo(6f, 3f); lineTo(6f, 21f)
+        moveTo(12f, 3f); lineTo(12f, 21f)
+        moveTo(18f, 3f); lineTo(18f, 21f)
+    }
+    // Fader knobs at different heights.
+    path(fill = SolidColor(Color.Black)) {
+        moveTo(3.5f, 13f); lineTo(8.5f, 13f); lineTo(8.5f, 17f); lineTo(3.5f, 17f); close()
+        moveTo(9.5f, 5f); lineTo(14.5f, 5f); lineTo(14.5f, 9f); lineTo(9.5f, 9f); close()
+        moveTo(15.5f, 10f); lineTo(20.5f, 10f); lineTo(20.5f, 14f); lineTo(15.5f, 14f); close()
+    }
+}.build()
