@@ -15,22 +15,22 @@ import kotlin.math.round
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
-/** The response the EQ aims for, relative to the mid-band level. */
-enum class EqTarget(val label: String, val description: String) {
-    FLAT("Flat", "Neutral; good for monitors and speech"),
-    TILT("Gentle tilt", "Falls 0.7 dB per octave; usually sounds more natural in a room"),
-    LIVE("Live / bass boost", "Flat with about +6 dB below 100 Hz, for music and dance"),
+/** Quick choices for the target curve; they set [EqSettings.tiltDbPerOctave] and [EqSettings.bassBoostDb]. */
+enum class EqTarget(val label: String, val description: String, val tiltDbPerOctave: Double, val bassBoostDb: Double) {
+    FLAT("Flat", "Neutral; good for monitors and speech", 0.0, 0.0),
+    TILT("Gentle tilt", "Falls 0.7 dB per octave; usually sounds more natural in a room", -0.7, 0.0),
+    LIVE("Live / bass boost", "Flat with +6 dB in the bass, for music and dance", 0.0, 6.0),
     ;
 
-    fun db(frequencyHz: Double): Double = when (this) {
-        FLAT -> 0.0
-        TILT -> (-0.7 * log2(frequencyHz / 1_000.0)).coerceIn(-4.0, 4.0)
-        LIVE -> 6.0 / (1.0 + (frequencyHz / 100.0).pow(2))
-    }
+    fun applyTo(settings: EqSettings) = settings.copy(tiltDbPerOctave = tiltDbPerOctave, bassBoostDb = bassBoostDb, bassBoostHz = EqSettings.DEFAULT_BASS_HZ)
 }
 
 data class EqSettings(
-    val target: EqTarget = EqTarget.FLAT,
+    /** Slope of the target curve around 1 kHz, in dB per octave (negative: less treble, more bass). */
+    val tiltDbPerOctave: Double = 0.0,
+    /** Extra bass in the target curve: full boost well below [bassBoostHz], half of it at [bassBoostHz]. */
+    val bassBoostDb: Double = 0.0,
+    val bassBoostHz: Double = DEFAULT_BASS_HZ,
     /** Number of bands available on the mixer or processor. */
     val filterCount: Int = 6,
     val minHz: Double = 40.0,
@@ -49,13 +49,46 @@ data class EqSettings(
         if (maxBoostDb !in 0.0..MAX_BOOST_DB) add("Maximum boost must be between 0 and ${MAX_BOOST_DB.toInt()} dB.")
         if (maxCutDb !in MIN_CUT_DB..MAX_CUT_DB) add("Maximum cut must be between ${MIN_CUT_DB.toInt()} and ${MAX_CUT_DB.toInt()} dB.")
         if (filterTypes.isEmpty()) add("Enable at least one filter type.")
+        if (tiltDbPerOctave !in MIN_TILT..MAX_TILT) add("Tilt must be between $MIN_TILT and $MAX_TILT dB per octave.")
+        if (bassBoostDb !in 0.0..MAX_BASS_BOOST_DB) add("Bass boost must be between 0 and ${MAX_BASS_BOOST_DB.toInt()} dB.")
+        if (bassBoostHz !in MIN_BASS_HZ..MAX_BASS_HZ) add("Bass boost frequency must be between ${MIN_BASS_HZ.toInt()} and ${MAX_BASS_HZ.toInt()} Hz.")
     }
+
+    /** Target level at [frequencyHz], relative to the mid band. */
+    fun targetDb(frequencyHz: Double): Double =
+        tiltDbPerOctave * log2(frequencyHz / TILT_PIVOT_HZ) + bassBoostDb / (1.0 + (frequencyHz / bassBoostHz).pow(2))
+
+    /** The preset this target matches, if any. */
+    val preset: EqTarget?
+        get() = EqTarget.entries.firstOrNull {
+            abs(it.tiltDbPerOctave - tiltDbPerOctave) < 1e-9 && abs(it.bassBoostDb - bassBoostDb) < 1e-9 &&
+                (bassBoostDb == 0.0 || abs(bassBoostHz - DEFAULT_BASS_HZ) < 1e-9)
+        }
+
+    /** Short description of the target curve, e.g. "tilt −0.7 dB/oct, bass +6 dB below 100 Hz". */
+    val targetLabel: String
+        get() = buildList {
+            if (tiltDbPerOctave != 0.0) add("tilt ${signed(tiltDbPerOctave)} dB/oct")
+            if (bassBoostDb != 0.0) add("bass ${signed(bassBoostDb)} dB below ${bassBoostHz.roundToInt()} Hz")
+        }.joinToString(", ").ifEmpty { "flat" }
 
     companion object {
         const val MAX_FILTERS = 12
         const val MAX_BOOST_DB = 12.0
         const val MIN_CUT_DB = 1.0
         const val MAX_CUT_DB = 24.0
+        const val MIN_TILT = -2.0
+        const val MAX_TILT = 1.0
+        const val MAX_BASS_BOOST_DB = 12.0
+        const val DEFAULT_BASS_HZ = 100.0
+        const val MIN_BASS_HZ = 40.0
+        const val MAX_BASS_HZ = 300.0
+        const val TILT_PIVOT_HZ = 1_000.0
+
+        private fun signed(v: Double): String {
+            val t = BigDecimal.valueOf(abs(v)).round(MathContext(2)).stripTrailingZeros().toPlainString()
+            return if (v < 0) "−$t" else "+$t"
+        }
     }
 }
 
@@ -115,7 +148,7 @@ object EqDesigner {
 
         val n = frequencies.size
         val smoothed = smooth(frequencies, responseDb)
-        val target = DoubleArray(n) { settings.target.db(frequencies[it]) }
+        val target = DoubleArray(n) { settings.targetDb(frequencies[it]) }
 
         // Align the measurement with the target over the mid band.
         val midLo = max(settings.minHz, 200.0)
@@ -128,7 +161,8 @@ object EqDesigner {
         val measured = DoubleArray(n) { smoothed[it] - offset }
 
         // Roll-off points: where the response falls 6 dB below the target, starting from the mid band.
-        val relative = DoubleArray(n) { measured[it] - target[it] }
+        // Measured against the tilt only: a bass boost in the target is not a roll-off of the speaker.
+        val relative = DoubleArray(n) { measured[it] - settings.tiltDbPerOctave * log2(frequencies[it] / EqSettings.TILT_PIVOT_HZ) }
         val lowRollOff = rollOff(frequencies, relative, startHz = midLo, downwards = true, level = ROLL_OFF_DB)
         val highRollOff = rollOff(frequencies, relative, startHz = midHi, downwards = false, level = ROLL_OFF_DB)
         // Boosting where the speaker already falls off costs excursion and headroom for little gain:
@@ -167,7 +201,7 @@ object EqDesigner {
 
         // Greedy: add the filter that helps most (without boosting and cutting on top of each other).
         var filters = listOf<EqFilter>()
-        val limits = Limits(from, to, settings.maxBoostDb, settings.maxCutDb, settings.filterTypes, lowShelfBoost = highPass != null)
+        val limits = Limits(from, to, settings.maxBoostDb, settings.maxCutDb, settings.filterTypes, lowShelfBoost = highPass != null || settings.bassBoostDb > 0)
         var cost = model.cost(filters)
         val steps = mutableListOf(filters)
         for (k in 0 until settings.filterCount) {
@@ -261,7 +295,10 @@ object EqDesigner {
         val maxBoostDb: Double,
         val maxCutDb: Double,
         val types: Set<FilterType>,
-        /** Without a high-pass, a low-shelf boost lifts everything below the corner, down to the speaker's excursion limit. */
+        /**
+         * Without a high-pass, a low-shelf boost lifts everything below the corner, down to the speaker's excursion limit;
+         * so it only boosts with a high-pass, or when the target explicitly asks for more bass.
+         */
         val lowShelfBoost: Boolean,
     ) {
         fun gain(g: Double, type: FilterType) =

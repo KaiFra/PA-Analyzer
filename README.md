@@ -9,6 +9,7 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 
 <p>
   <img src="docs/screenshots/results-portrait.png" width="200" alt="Results: fundamental and THD">
+  <img src="docs/screenshots/compare.png" width="200" alt="Comparing before and after EQ">
   <img src="docs/screenshots/eq.png" width="200" alt="EQ suggestion">
   <img src="docs/screenshots/measure.png" width="200" alt="Measure page">
   <img src="docs/screenshots/settings.png" width="200" alt="Settings page">
@@ -32,8 +33,14 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - Tap or drag on the chart for a cursor. The chips then show the values at the cursor: the fundamental in dB, distortion in dB and % relative to the fundamental, rub & buzz in dB relative to the fundamental.
 - Pinch horizontally to zoom the frequency axis, vertically to zoom the level axis; drag with two fingers to pan; double-tap to reset.
 - Turn the phone sideways to view curves: the system bars hide, the navigation moves to a slim side rail and the curve list to a side panel you can hide.
-- The wrench button changes the **analysis settings after the measurement**: smoothing, IR window, number of harmonics and rub & buzz start order. The raw recording is kept with every measurement, so it is evaluated again without measuring again (sweep settings are part of the recording and stay fixed).
+- The wrench button is where the **analysis settings** live: smoothing (a slider from none to 1/3 octave), IR window, number of harmonics and rub & buzz start order. By default they also apply to new measurements. The raw recording is kept with every measurement, so it is evaluated again without measuring again (sweep settings are part of the recording and stay fixed).
+- **Compare**: tick saved measurements in the list and choose **Compare** to draw their fundamental (and THD, when shown) on top of the open measurement, e.g. before/after EQ, left/right or two venues. The chips show each one's level at the cursor and the difference to the open measurement; tap a chip to remove it. **Align levels** shifts them to the open measurement's level at 200 Hz – 2 kHz.
+- **Average several positions**: measure 3–5 spots in the audience area and save each, then tick them in the list of saved measurements and choose **Average**. The positions are aligned in level at 200 Hz – 2 kHz and power-averaged (like REW's RMS average): dips from room reflections at one spot are filled by the others, while resonances of the speaker stay. The average is saved as a new measurement, so the EQ page can use it.
 - **Save** keeps the measurement on the phone, together with its recording; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV (readable by spreadsheets) plus the recording as 32-bit float WAV (e.g. for Audacity or REW). Import both files together to get a fully re-analysable copy, for example on another phone.
+
+### Microphone calibration
+
+With a USB measurement microphone (e.g. miniDSP UMIK-1/UMIK-2), load its calibration file under **Settings → Devices → Microphone calibration** (for a UMIK: the 90° file when the mic points up, the 0° file when it points at the speaker). Text files with frequency and dB per line are read (tab, space, comma or semicolon separated; phase columns and comment lines are ignored). The calibration is applied to new measurements and when analysing again: the fundamental is corrected by the mic's deviation, each harmonic by the difference between its excitation frequency and the frequency where it is heard. The measurement details show which calibration was used, and it is stored in the CSV.
 
 Bluetooth latency doesn't matter: the app finds the sweep in the recording itself and reports the measured delay.
 
@@ -41,7 +48,7 @@ Bluetooth latency doesn't matter: the app finds the sweep in the recording itsel
 
 The **EQ** page turns the current measurement into filter settings for a mixer or speaker processor:
 
-- Pick a **target** (flat, gentle tilt, or live with more bass), the number of **bands** your mixer has, the **filter types** it offers (bell, low shelf, high shelf, high-pass), the **range** to correct and the maximum **boost** (0–12 dB) and **cut** (1–24 dB), with a slider or by typing the value. Changes apply immediately.
+- Pick a **target**: a preset (flat, gentle tilt, live with more bass) or your own **tilt** (dB per octave around 1 kHz) and **bass boost** (level and frequency). Then set the number of **bands** your mixer has, the **filter types** it offers (bell, low shelf, high shelf, high-pass), the **range** to correct and the maximum **boost** (0–12 dB) and **cut** (1–24 dB), with a slider or by typing the value. Changes apply immediately.
 - The app suggests bells and shelves with frequency, gain and Q (plus bandwidth in octaves, for mixers that use it), rounded to values you can dial in, and shows the measured response, the EQ, and the expected result.
 - Where the speaker rolls off in the bass it suggests a **high-pass** (24 dB/oct Linkwitz-Riley) and never boosts there; boosts are limited (+3 dB by default) because filling dips costs headroom and room cancellations can't be filled anyway. Peaks are cut first.
 - **Copy** or **Share** gives a text version with an Equalizer APO / REW section.
@@ -62,11 +69,13 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 | Sample rate | 48 kHz | 44.1 / 48 / 96 kHz (96 kHz only if the phone's mic supports it) |
 | Averages | 1 | Up to 8 sweeps in one stream, aligned and averaged (+3 dB SNR per doubling) |
 | Silence before / after | 0.5 s / 1.5 s | Before: noise estimate. After: must cover the room's reverberation |
-| IR window | 300 ms | Gating. Short windows (≈10 ms) remove reflections but lose bass resolution |
-| Harmonics up to | 5 | THD sums H2 up to this order (max 10) |
-| R&B from order | 10 | Rub & buzz counts everything above this multiple of the sweep frequency |
-| Smoothing | 1/12 octave | None, 1/3, 1/6, 1/12, 1/24 octave |
+| IR window¹ | 300 ms | Gating. Short windows (≈10 ms) remove reflections but lose bass resolution |
+| Harmonics up to¹ | 5 | THD sums H2 up to this order (max 10) |
+| R&B from order¹ | 10 | Rub & buzz counts everything above this multiple of the sweep frequency |
+| Smoothing¹ | 1/12 octave | None, 1/24, 1/12, 1/6, 1/3 octave |
 | Bluetooth channel | Both | Play the sweep on left, right or both channels |
+
+¹ Analysis settings: set with the wrench on the Results page, not on the Settings page.
 
 ## How it works
 
@@ -79,7 +88,7 @@ All signal processing lives in the pure-Kotlin `:dsp` module and is tested on th
 
 ## Limitations
 
-- Phone microphones are not calibrated and usually roll off in the deep bass; compare measurements made with the same phone and position, or use a USB measurement mic. The app records with Android's *unprocessed* source when the phone supports it (no AGC/noise suppression); otherwise it falls back to *voice recognition*.
+- Phone microphones are not calibrated and usually roll off in the deep bass; compare measurements made with the same phone and position, or use a USB measurement mic with its calibration file. The app records with Android's *unprocessed* source when the phone supports it (no AGC/noise suppression); otherwise it falls back to *voice recognition*.
 - Levels are relative (dB re digital full scale), not SPL.
 - Background noise counts as rub & buzz; check the noise-floor curve before blaming the speaker.
 

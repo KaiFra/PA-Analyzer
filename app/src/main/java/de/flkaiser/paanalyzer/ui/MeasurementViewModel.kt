@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import de.flkaiser.paanalyzer.audio.AudioEngine
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.DeviceSelection
+import de.flkaiser.paanalyzer.data.CalibrationStore
 import de.flkaiser.paanalyzer.data.MeasurementRepository
 import de.flkaiser.paanalyzer.data.SavedEntry
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
@@ -23,6 +24,8 @@ import de.flkaiser.paanalyzer.dsp.MeasurementAnalyzer
 import de.flkaiser.paanalyzer.dsp.MeasurementDocument
 import de.flkaiser.paanalyzer.dsp.MeasurementFileException
 import de.flkaiser.paanalyzer.dsp.MeasurementResult
+import de.flkaiser.paanalyzer.dsp.MicCalibration
+import de.flkaiser.paanalyzer.dsp.PositionAverage
 import de.flkaiser.paanalyzer.dsp.PreparedMeasurement
 import de.flkaiser.paanalyzer.dsp.WavFile
 import de.flkaiser.paanalyzer.settings.AppSettings
@@ -80,6 +83,11 @@ data class UiState(
     val current: CurrentMeasurement? = null,
     val library: List<SavedEntry> = emptyList(),
     val visibleCurves: Set<String> = Curves.DEFAULT_VISIBLE,
+    /** Saved measurements drawn on top of the current one. */
+    val comparisons: List<Comparison> = emptyList(),
+    val alignComparisons: Boolean = false,
+    /** Microphone calibration applied to new measurements, null if none is loaded. */
+    val calibration: MicCalibration? = null,
     val eqSettings: EqSettings = EqSettings(),
     /** EQ suggestion for the current measurement, recomputed when it or [eqSettings] change. */
     val eqSuggestion: EqSuggestion? = null,
@@ -97,6 +105,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private val engine = AudioEngine(application)
     private val store = SettingsStore(application)
     private val repository = MeasurementRepository(application)
+    private val calibrationStore = CalibrationStore(application)
     private var job: Job? = null
 
     /** Deconvolved form of the current recording, so analysis changes don't redo the slow part. */
@@ -108,6 +117,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             micSource = engine.micSourceLabel,
             visibleCurves = store.loadCurves() ?: Curves.DEFAULT_VISIBLE,
             eqSettings = store.loadEq(),
+            calibration = calibrationStore.load(),
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -208,7 +218,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
                 _state.update { it.copy(phase = Phase.Analyzing(0.0)) }
                 val (preparedMeasurement, result) = withContext(Dispatchers.Default) {
                     val p = analyzer.prepare(recording) { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 * f)) } }
-                    p to p.evaluate { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 + 0.15 * f)) } }
+                    p to calibrated(p.evaluate { f -> _state.update { it.copy(phase = Phase.Analyzing(0.85 + 0.15 * f)) } })
                 }
                 prepared = preparedMeasurement
                 val now = System.currentTimeMillis()
@@ -281,9 +291,51 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     override fun deleteSaved(id: String) = launchIo("Could not delete the measurement") {
         repository.delete(id)
         // A deleted measurement stays on screen, but is no longer saved.
-        _state.update { s -> s.copy(current = s.current?.let { if (it.savedId == id) it.copy(savedId = null) else it }) }
+        _state.update { s ->
+            s.copy(
+                current = s.current?.let { if (it.savedId == id) it.copy(savedId = null) else it },
+                comparisons = s.comparisons.filter { it.id != id },
+            )
+        }
         refreshLibrary()
     }
+
+    override fun averageSaved(ids: List<String>) = launchIo("Could not average the measurements") {
+        if (ids.size < PositionAverage.MIN_POSITIONS) return@launchIo
+        val docs = withContext(Dispatchers.IO) { ids.map { repository.load(it) } }
+        val result = withContext(Dispatchers.Default) { PositionAverage.average(docs.map { it.result }) }
+        val now = System.currentTimeMillis()
+        val name = "Average of ${docs.size} positions"
+        val entry = repository.save(result, name, now, null)
+        show(MeasurementDocument(entry.name, now, result), entry.id, null)
+        _state.update {
+            it.copy(message = "Averaged ${docs.size} positions (levels aligned at 200 Hz – 2 kHz): " + docs.joinToString(", ") { d -> d.name })
+        }
+        refreshLibrary()
+    }
+
+    override fun compareSaved(ids: List<String>) = launchIo("Could not open the measurements to compare") {
+        if (ids.isEmpty()) return@launchIo
+        // Without an open measurement, the first ticked one is opened and the others are compared with it.
+        if (_state.value.current == null) {
+            val first = ids.first()
+            val doc = withContext(Dispatchers.IO) { repository.load(first) }
+            val recording = runCatching { repository.loadRecording(first) }.getOrNull()
+            show(doc, first, recording)
+        }
+        val currentId = _state.value.current?.savedId
+        val chosen = ids.filter { it != currentId }.take(Compare.MAX)
+        val docs = withContext(Dispatchers.IO) { chosen.map { it to repository.load(it) } }
+        val comparisons = docs.mapIndexed { i, (id, doc) -> Comparison(id, doc.name.ifBlank { defaultName(doc.createdAtMillis) }, doc.result, i) }
+        _state.update { it.copy(comparisons = comparisons, page = Page.RESULTS) }
+        if (ids.size > chosen.size + (if (currentId in ids) 1 else 0)) {
+            _state.update { it.copy(message = "At most ${Compare.MAX} measurements can be compared at once.") }
+        }
+    }
+
+    override fun removeComparison(id: String) = _state.update { s -> s.copy(comparisons = s.comparisons.filter { it.id != id }) }
+
+    override fun alignComparisons(align: Boolean) = _state.update { it.copy(alignComparisons = align) }
 
     override fun importFiles(uris: List<Uri>) = launchIo("Could not import the file") {
         val app = getApplication<Application>()
@@ -320,7 +372,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
                 val result = withContext(Dispatchers.Default) {
                     val p = prepared?.takeIf { it.recording === recording }
                         ?: MeasurementAnalyzer(current.result.settings).prepare(recording).also { prepared = it }
-                    p.evaluate(analysis)
+                    calibrated(p.evaluate(analysis))
                 }
                 val updated = current.copy(result = result)
                 _state.update { s -> s.copy(current = if (s.current?.recording === recording) updated else s.current, reanalyzing = false) }
@@ -335,6 +387,30 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    override fun loadCalibration(uri: Uri) = launchIo("Could not load the calibration file") {
+        val app = getApplication<Application>()
+        val name = displayNameWithExtension(uri) ?: "Calibration"
+        val calibration = withContext(Dispatchers.IO) {
+            val text = app.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                ?: throw MeasurementFileException("The file could not be read.")
+            MicCalibration.parse(text, name).also { calibrationStore.save(it) }
+        }
+        _state.update {
+            it.copy(
+                calibration = calibration,
+                message = "Loaded “${calibration.name}” (${calibration.size} points). It applies to new measurements and to “analyse again”.",
+            )
+        }
+    }
+
+    override fun clearCalibration() {
+        calibrationStore.clear()
+        _state.update { it.copy(calibration = null, message = "Microphone calibration removed.") }
+    }
+
+    /** Applies the loaded microphone calibration to a freshly evaluated recording. */
+    private fun calibrated(result: MeasurementResult): MeasurementResult = _state.value.calibration?.apply(result) ?: result
+
     override fun exportCurrent(): ExportData? {
         val current = _state.value.current ?: return null
         val csv = repository.export(MeasurementDocument(current.name, current.createdAtMillis, current.result))
@@ -348,6 +424,8 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             it.copy(
                 current = CurrentMeasurement(doc.result, doc.name.ifBlank { defaultName(doc.createdAtMillis) }, doc.createdAtMillis, id, recording),
                 page = Page.RESULTS,
+                // The opened measurement is no longer drawn as a comparison to itself.
+                comparisons = it.comparisons.filter { c -> c.id != id },
             )
         }
     }
@@ -375,6 +453,13 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         val app = getApplication<Application>()
         return app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
             if (c.moveToFirst()) c.getString(0)?.substringBeforeLast('.') else null
+        }
+    }
+
+    private fun displayNameWithExtension(uri: Uri): String? {
+        val app = getApplication<Application>()
+        return app.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
         }
     }
 

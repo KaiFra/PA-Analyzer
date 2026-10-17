@@ -2,10 +2,8 @@
 
 Ideas for later versions, roughly in order of value.
 
-## Measuring and EQ
-1. **Average several positions** – measure 3–5 spots in the audience area and average them, so the EQ fixes the speaker rather than one spot in the room.
-2. **Compare and overlay** – show saved measurements on top of each other (before/after EQ, left/right, venues).
-3. **Microphone calibration** – load the calibration file of a USB measurement mic (e.g. UMIK-1) for trustworthy treble.
+## Done
+- Average several positions, compare and overlay, microphone calibration (0.3.0).
 
 ## Setting up the PA
 4. **Sub/top time alignment and polarity** – arrival time and phase of sub and tops, suggested delay and polarity. Both must play in one sweep sequence (e.g. left = sub, right = top) because Bluetooth latency changes between connections.

@@ -9,7 +9,7 @@ object EqExport {
         val s = suggestion.settings
         appendLine("PA Analyzer – EQ suggestion for “$measurementName”")
         appendLine(
-            "Target: ${s.target.label}, corrected ${EqDesigner.formatHz(suggestion.correctedFromHz)} – " +
+            "Target: ${s.targetLabel}, corrected ${EqDesigner.formatHz(suggestion.correctedFromHz)} – " +
                 "${EqDesigner.formatHz(suggestion.correctedToHz)}, deviation ±${fmt(suggestion.rmsBeforeDb, 1)} dB → " +
                 "±${fmt(suggestion.rmsAfterDb, 1)} dB (RMS)",
         )
