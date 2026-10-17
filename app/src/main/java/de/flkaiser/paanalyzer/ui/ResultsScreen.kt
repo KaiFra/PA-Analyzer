@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Slider
+import kotlin.math.roundToInt
 import androidx.compose.material3.InputChip
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
@@ -519,7 +521,8 @@ private fun AnalysisDialog(
     var irWindow by remember { mutableStateOf(SettingsForm.format(s.irWindowMs)) }
     var harmonics by remember { mutableStateOf(s.maxHarmonic.toString()) }
     var order by remember { mutableStateOf(s.rubBuzzStartOrder.toString()) }
-    var asDefault by remember { mutableStateOf(false) }
+    // Analysis settings are only set here, so by default they also apply to new measurements.
+    var asDefault by remember { mutableStateOf(true) }
 
     val parsed = AnalysisInput(irWindow, harmonics, order, smoothing).parse(s)
     AlertDialog(
@@ -534,14 +537,25 @@ private fun AnalysisDialog(
                         color = MaterialTheme.colorScheme.error,
                     )
                 } else {
-                    Text("Smoothing", style = MaterialTheme.typography.labelLarge)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (option in Smoothing.entries) {
-                            FilterChip(selected = option == smoothing, onClick = { smoothing = option }, label = { Text(option.label) })
-                        }
+                    Text("Smoothing: ${smoothing.label}", style = MaterialTheme.typography.labelLarge)
+                    Slider(
+                        value = SMOOTHING_STEPS.indexOf(smoothing).coerceAtLeast(0).toFloat(),
+                        onValueChange = { smoothing = SMOOTHING_STEPS[it.roundToInt().coerceIn(0, SMOOTHING_STEPS.lastIndex)] },
+                        valueRange = 0f..SMOOTHING_STEPS.lastIndex.toFloat(),
+                        steps = SMOOTHING_STEPS.size - 2,
+                    )
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("None", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.weight(1f))
+                        Text("1/3 octave", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     OutlinedTextField(irWindow, { irWindow = it }, label = { Text("IR window") }, suffix = { Text("ms") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    Text(
+                        "A short IR window (e.g. 10 ms) removes room reflections but loses resolution below about 1 / window length.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     OutlinedTextField(harmonics, { harmonics = it }, label = { Text("Harmonics up to") }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     OutlinedTextField(order, { order = it }, label = { Text("Rub & buzz from order") }, singleLine = true,

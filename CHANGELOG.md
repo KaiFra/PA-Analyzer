@@ -2,6 +2,12 @@
 
 All notable changes to PA Analyzer. Versions follow [Semantic Versioning](https://semver.org); releases are the `v*` tags on GitHub, each with the signed arm64 APK.
 
+## [0.3.1] – 2026-10-17
+
+### Changed
+- Analysis settings (smoothing, IR window, harmonics, rub & buzz order) are only set with the wrench on the Results page; the Settings page no longer has them. "Also use for new measurements" is on by default.
+- Smoothing is a slider from none to 1/3 octave.
+
 ## [0.3.0] – 2026-10-17
 
 ### Added
@@ -53,6 +59,7 @@ First release.
 ### Fixed
 - No THD spikes near the end of the sweep: harmonics are only evaluated where the sweep has not started to fade out.
 
+[0.3.1]: https://github.com/KaiFra/PA-Analyzer/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/KaiFra/PA-Analyzer/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/KaiFra/PA-Analyzer/compare/v0.1.0...v0.2.1
 [0.2.0]: https://github.com/KaiFra/PA-Analyzer/pull/1

@@ -4,6 +4,9 @@ import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.dsp.Smoothing
 import de.flkaiser.paanalyzer.dsp.SweepSettings
 
+/** Smoothing slider positions, from no smoothing to the strongest. */
+val SMOOTHING_STEPS: List<Smoothing> = listOf(Smoothing.NONE, Smoothing.OCT_24, Smoothing.OCT_12, Smoothing.OCT_6, Smoothing.OCT_3)
+
 /** Text input of the analysis dialog. */
 data class AnalysisInput(val irWindowMs: String, val maxHarmonic: String, val rubBuzzStartOrder: String, val smoothing: Smoothing) {
 
