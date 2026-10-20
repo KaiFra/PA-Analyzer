@@ -4,6 +4,9 @@ import android.net.Uri
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.dsp.EqSettings
+import de.flkaiser.paanalyzer.dsp.LiveSettings
+import de.flkaiser.paanalyzer.live.LiveFrame
+import kotlinx.coroutines.flow.StateFlow
 import de.flkaiser.paanalyzer.settings.SettingsForm
 
 /** Everything the screens can ask for. Implemented by [MeasurementViewModel]; screenshot tests use a no-op. */
@@ -47,6 +50,17 @@ interface AppActions {
 
     /** The current measurement as files for sharing, or null if none is open. */
     fun exportCurrent(): ExportData?
+
+    // ---- Live analyzer ----
+
+    /** Spectra of the live analyzer; a flow of its own, so 20 updates per second don't redraw the whole app. */
+    val liveFrames: StateFlow<LiveFrame?>
+
+    /** The live page is on screen and the app in the foreground: the analyzer runs while this is true. */
+    fun setLiveVisible(visible: Boolean)
+    fun pauseLive(paused: Boolean)
+    fun resetLivePeaks()
+    fun updateLiveSettings(settings: LiveSettings)
 }
 
 /** A measurement ready for sharing: the CSV and, if available, the recording as WAV. */

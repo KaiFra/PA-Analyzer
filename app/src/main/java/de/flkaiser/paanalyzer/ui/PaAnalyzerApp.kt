@@ -43,6 +43,7 @@ private val DESTINATIONS = listOf(
     Destination(Page.MEASURE, "Measure", Icons.Filled.PlayArrow),
     Destination(Page.RESULTS, "Results", ResultsIcon),
     Destination(Page.EQ, "EQ", EqIcon),
+    Destination(Page.LIVE, "Live", LiveIcon),
     Destination(Page.SETTINGS, "Settings", Icons.Filled.Settings),
 )
 
@@ -67,13 +68,14 @@ fun AppScaffold(state: UiState, viewModel: AppActions) {
     }
 
     // Viewing curves in landscape: give the chart the whole screen (bars come back with a swipe).
-    ImmersiveMode(enabled = landscape && state.page == Page.RESULTS && state.current != null)
+    ImmersiveMode(enabled = landscape && (state.page == Page.RESULTS && state.current != null || state.page == Page.LIVE))
 
     val content: @Composable () -> Unit = {
         when (state.page) {
             Page.MEASURE -> MeasureScreen(state, viewModel)
             Page.RESULTS -> ResultsScreen(state, viewModel, landscape)
             Page.EQ -> EqScreen(state, viewModel, landscape)
+            Page.LIVE -> LiveScreen(state, viewModel, landscape)
             Page.SETTINGS -> SettingsScreen(state, viewModel)
         }
     }

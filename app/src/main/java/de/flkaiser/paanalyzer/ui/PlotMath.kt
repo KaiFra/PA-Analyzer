@@ -95,6 +95,44 @@ object PlotMath {
         return best
     }
 
+    /**
+     * Thins a dense curve to one point per pixel column, keeping the highest one (at its own x),
+     * so a spectrum with thousands of FFT bins is drawn as its upper envelope. Non-finite values
+     * become gaps (NaN). Returns pixel positions (from the left of the plot) and values.
+     */
+    fun maxEnvelope(frequencies: DoubleArray, values: DoubleArray, min: Double, max: Double, width: Float): Pair<FloatArray, DoubleArray> {
+        val xs = FloatArray(frequencies.size)
+        val vs = DoubleArray(frequencies.size)
+        var n = 0
+        var column = Int.MIN_VALUE
+        for (i in frequencies.indices) {
+            val v = values[i]
+            if (!v.isFinite() || frequencies[i] <= 0) {
+                if (n > 0 && !vs[n - 1].isNaN()) {
+                    xs[n] = xs[n - 1]
+                    vs[n] = Double.NaN
+                    n++
+                }
+                column = Int.MIN_VALUE
+                continue
+            }
+            val x = frequencyToX(frequencies[i], min, max, width)
+            val c = kotlin.math.floor(x).toInt()
+            if (c == column) {
+                if (v > vs[n - 1]) {
+                    vs[n - 1] = v
+                    xs[n - 1] = x
+                }
+            } else {
+                xs[n] = x
+                vs[n] = v
+                n++
+                column = c
+            }
+        }
+        return xs.copyOf(n) to vs.copyOf(n)
+    }
+
     fun clamp(v: Double, range: ClosedFloatingPointRange<Double>): Double = min(max(v, range.start), range.endInclusive)
 
     /**

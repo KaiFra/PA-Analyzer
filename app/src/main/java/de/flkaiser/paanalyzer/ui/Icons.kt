@@ -60,3 +60,34 @@ val EqIcon: ImageVector = ImageVector.Builder(
         moveTo(15.5f, 10f); lineTo(20.5f, 10f); lineTo(20.5f, 14f); lineTo(15.5f, 14f); close()
     }
 }.build()
+
+/** Bars of different heights, like a real-time analyzer, for the Live destination. */
+val LiveIcon: ImageVector = ImageVector.Builder(
+    name = "Live",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).apply {
+    path(stroke = SolidColor(Color.Black), strokeLineWidth = 2.5f, strokeLineCap = StrokeCap.Round) {
+        moveTo(4f, 20f); lineTo(4f, 14f)
+        moveTo(8f, 20f); lineTo(8f, 7f)
+        moveTo(12f, 20f); lineTo(12f, 11f)
+        moveTo(16f, 20f); lineTo(16f, 4f)
+        moveTo(20f, 20f); lineTo(20f, 13f)
+    }
+}.build()
+
+/** Two bars (pause); not part of the core icon set. */
+val PauseIcon: ImageVector = ImageVector.Builder(
+    name = "Pause",
+    defaultWidth = 24.dp,
+    defaultHeight = 24.dp,
+    viewportWidth = 24f,
+    viewportHeight = 24f,
+).apply {
+    path(fill = SolidColor(Color.Black)) {
+        moveTo(6f, 5f); lineTo(10f, 5f); lineTo(10f, 19f); lineTo(6f, 19f); close()
+        moveTo(14f, 5f); lineTo(18f, 5f); lineTo(18f, 19f); lineTo(14f, 19f); close()
+    }
+}.build()

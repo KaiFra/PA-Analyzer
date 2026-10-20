@@ -6,11 +6,14 @@ import androidx.compose.runtime.setValue
 
 internal val Y_LIMIT = -250.0..100.0
 
-/** Zoom, pan and cursor of a [FrequencyPlot]; [fullX] is the zoomed-out frequency range. */
-class ChartState(val fullX: ClosedFloatingPointRange<Double>) {
+/**
+ * Zoom, pan and cursor of a [FrequencyPlot]; [fullX] is the zoomed-out frequency range and
+ * [defaultY] the level range after a reset (null = automatic from the visible curves).
+ */
+class ChartState(val fullX: ClosedFloatingPointRange<Double>, val defaultY: ClosedFloatingPointRange<Double>? = null) {
     var xRange by mutableStateOf(fullX)
     /** null = automatic from the visible curves. */
-    var yRange by mutableStateOf<ClosedFloatingPointRange<Double>?>(null)
+    var yRange by mutableStateOf(defaultY)
     var cursorHz by mutableStateOf<Double?>(null)
 
     fun gestures(autoY: () -> ClosedFloatingPointRange<Double>) = object : PlotGestures {
@@ -33,7 +36,7 @@ class ChartState(val fullX: ClosedFloatingPointRange<Double>) {
 
         override fun reset() {
             xRange = fullX
-            yRange = null
+            yRange = defaultY
         }
     }
 }

@@ -11,6 +11,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import androidx.core.content.ContextCompat
+import de.flkaiser.paanalyzer.live.LiveInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -84,6 +85,9 @@ class AudioEngine(private val context: Context) {
             record.release()
         }
     }
+
+    /** Opens the chosen microphone for the live analyzer (same source and processing as for measurements). */
+    fun openLiveMic(sampleRate: Int, input: AudioDeviceInfo?): LiveInput = LiveInput(createRecord(sampleRate, input), float = true)
 
     private fun readInto(record: AudioRecord, buffer: FloatArray, offset: Int, count: Int): Int {
         if (count <= 0) return 0

@@ -1,6 +1,14 @@
 package de.flkaiser.paanalyzer.screenshots
 
+import android.Manifest
 import android.media.AudioDeviceInfo
+import de.flkaiser.paanalyzer.dsp.LiveSettings
+import de.flkaiser.paanalyzer.live.LiveFrame
+import de.flkaiser.paanalyzer.ui.LiveUiState
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -87,6 +95,15 @@ class ScreenshotTest {
 
     @Test
     @Config(qualifiers = "w400dp-h820dp-xhdpi")
+    fun live() {
+        Shadows.shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        capture("live", dark = true) {
+            AppScaffold(state(Page.LIVE).copy(live = LiveUiState(running = true)), NoActions)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w400dp-h820dp-xhdpi")
     fun measure() = capture("measure", dark = false) { AppScaffold(state(Page.MEASURE), NoActions) }
 
     @Test
@@ -121,6 +138,11 @@ class ScreenshotTest {
         override fun alignComparisons(align: Boolean) {}
         override fun loadCalibration(uri: Uri) {}
         override fun clearCalibration() {}
+        override val liveFrames: StateFlow<LiveFrame?> by lazy { MutableStateFlow(DemoLive.frame) }
+        override fun setLiveVisible(visible: Boolean) {}
+        override fun pauseLive(paused: Boolean) {}
+        override fun resetLivePeaks() {}
+        override fun updateLiveSettings(settings: LiveSettings) {}
         override fun importFiles(uris: List<Uri>) {}
         override fun reanalyze(analysis: AnalysisSettings) {}
         override fun updateEqSettings(settings: EqSettings) {}
