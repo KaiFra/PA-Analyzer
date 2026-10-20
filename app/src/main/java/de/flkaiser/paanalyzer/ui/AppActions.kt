@@ -1,11 +1,13 @@
 package de.flkaiser.paanalyzer.ui
 
+import android.content.Intent
 import android.net.Uri
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.dsp.EqSettings
 import de.flkaiser.paanalyzer.dsp.LiveSettings
 import de.flkaiser.paanalyzer.live.LiveFrame
+import de.flkaiser.paanalyzer.live.LiveSource
 import kotlinx.coroutines.flow.StateFlow
 import de.flkaiser.paanalyzer.settings.SettingsForm
 
@@ -61,6 +63,13 @@ interface AppActions {
     fun pauseLive(paused: Boolean)
     fun resetLivePeaks()
     fun updateLiveSettings(settings: LiveSettings)
+
+    /** Switches to the microphone (phone audio starts with [startPhoneCapture] after the system dialog). */
+    fun selectLiveSource(source: LiveSource)
+
+    /** The user allowed capturing the phone's audio in the system dialog. */
+    fun startPhoneCapture(resultCode: Int, data: Intent)
+    fun phoneCaptureDeclined()
 }
 
 /** A measurement ready for sharing: the CSV and, if available, the recording as WAV. */

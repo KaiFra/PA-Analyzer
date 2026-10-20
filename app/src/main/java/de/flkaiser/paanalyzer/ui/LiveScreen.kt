@@ -3,9 +3,11 @@
 package de.flkaiser.paanalyzer.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import androidx.core.graphics.createBitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -33,6 +35,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -81,6 +87,7 @@ import de.flkaiser.paanalyzer.dsp.WindowFunction
 import de.flkaiser.paanalyzer.live.ColorMap
 import de.flkaiser.paanalyzer.live.LiveFrame
 import de.flkaiser.paanalyzer.live.LiveSource
+import de.flkaiser.paanalyzer.live.PlaybackCapture
 import de.flkaiser.paanalyzer.live.WaterfallHistory
 import java.math.BigDecimal
 import java.math.RoundingMode
@@ -114,6 +121,15 @@ fun LiveScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
     }
     val frame = viewModel.liveFrames.collectAsStateWithLifecycle()
     val live = state.live
+    val capture = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data
+        if (result.resultCode == Activity.RESULT_OK && data != null) viewModel.startPhoneCapture(result.resultCode, data) else viewModel.phoneCaptureDeclined()
+    }
+    val askForPhoneAudio = {
+        runCatching { capture.launch(PlaybackCapture.consentIntent(context)) }
+            .onFailure { viewModel.phoneCaptureDeclined() }
+        Unit
+    }
     val chart = remember(live.settings.sampleRate) {
         ChartState(WaterfallHistory.MIN_HZ..live.settings.sampleRate / 2.0, defaultY = LIVE_Y)
     }
@@ -122,7 +138,7 @@ fun LiveScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
     if (landscape) {
         Row(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = 4.dp, top = 4.dp, bottom = 4.dp)) {
-                SpectrumChart(frame, chart, Modifier.fillMaxWidth().weight(0.6f))
+                ChartWithPrompt(state, frame, chart, askForPhoneAudio, Modifier.fillMaxWidth().weight(0.6f))
                 ColorBar(chart.yRange ?: LIVE_Y)
                 WaterfallView(frame, chart, Modifier.fillMaxWidth().weight(0.4f))
             }
@@ -130,14 +146,14 @@ fun LiveScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
                 Modifier.width(232.dp).fillMaxHeight().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                LiveHeader(state, frame, viewModel, compact = true, onSettings = { showSettings = true })
+                LiveHeader(state, frame, viewModel, compact = true, onSettings = { showSettings = true }, onPhoneAudio = askForPhoneAudio)
                 LiveReadout(frame, chart, vertical = true)
             }
         }
     } else {
         Column(Modifier.fillMaxSize().padding(horizontal = 8.dp)) {
-            LiveHeader(state, frame, viewModel, compact = false, onSettings = { showSettings = true })
-            SpectrumChart(frame, chart, Modifier.fillMaxWidth().weight(0.56f))
+            LiveHeader(state, frame, viewModel, compact = false, onSettings = { showSettings = true }, onPhoneAudio = askForPhoneAudio)
+            ChartWithPrompt(state, frame, chart, askForPhoneAudio, Modifier.fillMaxWidth().weight(0.56f))
             LiveReadout(frame, chart, vertical = false)
             ColorBar(chart.yRange ?: LIVE_Y)
             WaterfallView(frame, chart, Modifier.fillMaxWidth().weight(0.44f).padding(bottom = 4.dp))
@@ -177,8 +193,37 @@ private fun PermissionPrompt(onAllow: () -> Unit) {
     }
 }
 
+/** The chart, with a button on top when phone audio is chosen but not yet allowed. */
 @Composable
-private fun LiveHeader(state: UiState, frame: State<LiveFrame?>, viewModel: AppActions, compact: Boolean, onSettings: () -> Unit) {
+private fun ChartWithPrompt(state: UiState, frame: State<LiveFrame?>, chart: ChartState, onPhoneAudio: () -> Unit, modifier: Modifier) {
+    Box(modifier) {
+        SpectrumChart(frame, chart, Modifier.fillMaxSize())
+        if (state.live.source == LiveSource.PHONE && !state.live.phoneCaptureActive) {
+            Card(Modifier.align(Alignment.Center).padding(24.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Phone audio", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Shows the spectrum of what this phone plays, e.g. music from another app. Android asks for " +
+                            "permission each time (it calls it recording or casting the screen; only the audio is used). " +
+                            "Apps that block capture stay silent.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = onPhoneAudio) { Text("Start capture") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveHeader(
+    state: UiState,
+    frame: State<LiveFrame?>,
+    viewModel: AppActions,
+    compact: Boolean,
+    onSettings: () -> Unit,
+    onPhoneAudio: () -> Unit,
+) {
     val live = state.live
     val s = live.settings
     Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
@@ -203,6 +248,23 @@ private fun LiveHeader(state: UiState, frame: State<LiveFrame?>, viewModel: AppA
                 Icon(Icons.Filled.Refresh, contentDescription = "Reset peak hold")
             }
             IconButton(onClick = onSettings) { Icon(Icons.Filled.Build, contentDescription = "Analyzer settings") }
+        }
+        if (PlaybackCapture.supported) {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                LiveSource.entries.forEachIndexed { i, source ->
+                    SegmentedButton(
+                        selected = live.source == source,
+                        onClick = {
+                            when {
+                                source == LiveSource.MICROPHONE -> viewModel.selectLiveSource(source)
+                                live.source != LiveSource.PHONE || !live.phoneCaptureActive -> onPhoneAudio()
+                            }
+                        },
+                        shape = SegmentedButtonDefaults.itemShape(i, LiveSource.entries.size),
+                        label = { Text(source.label, maxLines = 1) },
+                    )
+                }
+            }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.Center) {
             FilterChip(
@@ -231,7 +293,7 @@ private fun statusText(state: UiState): String {
         state.live.source.label,
         "${formatKhz(s.sampleRate)} kHz",
         "FFT ${s.fftSize}",
-        if (s.decimations == 0) "${formatNumber(s.binWidthHz)} Hz/bin" else "${formatNumber(s.finestBinWidthHz)} Hz/bin below ${formatLiveHz(s.finestBandTopHz)}",
+        "${formatNumber(s.finestBinWidthHz)} Hz/bin",
     )
     if (state.live.source == LiveSource.MICROPHONE && state.calibration != null) parts += "calibrated"
     return parts.joinToString(" · ")
@@ -349,7 +411,7 @@ private class WaterfallBuffers {
         val rows = history.rows
         var b = bitmap
         if (b == null || b.width != cols || b.height != rows) {
-            b = Bitmap.createBitmap(cols, rows, Bitmap.Config.ARGB_8888)
+            b = createBitmap(cols, rows)
             bitmap = b
             image = b.asImageBitmap()
             pixels = IntArray(cols * rows)

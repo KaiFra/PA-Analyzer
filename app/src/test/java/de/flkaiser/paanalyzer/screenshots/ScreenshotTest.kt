@@ -1,6 +1,8 @@
 package de.flkaiser.paanalyzer.screenshots
 
 import android.Manifest
+import android.content.Intent
+import de.flkaiser.paanalyzer.live.LiveSource
 import android.media.AudioDeviceInfo
 import de.flkaiser.paanalyzer.dsp.LiveSettings
 import de.flkaiser.paanalyzer.live.LiveFrame
@@ -143,6 +145,9 @@ class ScreenshotTest {
         override fun pauseLive(paused: Boolean) {}
         override fun resetLivePeaks() {}
         override fun updateLiveSettings(settings: LiveSettings) {}
+        override fun selectLiveSource(source: LiveSource) {}
+        override fun startPhoneCapture(resultCode: Int, data: Intent) {}
+        override fun phoneCaptureDeclined() {}
         override fun importFiles(uris: List<Uri>) {}
         override fun reanalyze(analysis: AnalysisSettings) {}
         override fun updateEqSettings(settings: EqSettings) {}

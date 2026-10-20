@@ -6,6 +6,10 @@ import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioPlaybackCaptureConfiguration
+import android.media.projection.MediaProjection
+import android.os.Build
+import androidx.annotation.RequiresApi
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
@@ -88,6 +92,51 @@ class AudioEngine(private val context: Context) {
 
     /** Opens the chosen microphone for the live analyzer (same source and processing as for measurements). */
     fun openLiveMic(sampleRate: Int, input: AudioDeviceInfo?): LiveInput = LiveInput(createRecord(sampleRate, input), float = true)
+
+    /**
+     * Opens what the phone plays (media, games and unknown usages of other apps) through a granted
+     * capture. Apps that opt out of capture stay silent.
+     */
+    @RequiresApi(Build.VERSION_CODES.Q)
+    fun openPlaybackCapture(projection: MediaProjection, sampleRate: Int): LiveInput {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            throw AudioException("Microphone permission is required.")
+        }
+        val config = AudioPlaybackCaptureConfiguration.Builder(projection)
+            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+            .addMatchingUsage(AudioAttributes.USAGE_GAME)
+            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+            .build()
+        // Float if the device supports it for capture, otherwise 16 bit.
+        for (encoding in listOf(AudioFormat.ENCODING_PCM_FLOAT, AudioFormat.ENCODING_PCM_16BIT)) {
+            val minBuffer = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, encoding)
+            if (minBuffer <= 0) continue
+            val record = try {
+                AudioRecord.Builder()
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(encoding)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
+                            .build(),
+                    )
+                    .setAudioPlaybackCaptureConfig(config)
+                    .setBufferSizeInBytes(max(minBuffer * 4, sampleRate * 4))
+                    .build()
+            } catch (e: UnsupportedOperationException) {
+                null
+            } catch (e: IllegalArgumentException) {
+                null
+            } catch (e: SecurityException) {
+                throw AudioException("Microphone permission is required.")
+            }
+            if (record != null && record.state == AudioRecord.STATE_INITIALIZED) {
+                return LiveInput(record, float = encoding == AudioFormat.ENCODING_PCM_FLOAT)
+            }
+            record?.release()
+        }
+        throw AudioException("Phone audio can't be captured at $sampleRate Hz.")
+    }
 
     private fun readInto(record: AudioRecord, buffer: FloatArray, offset: Int, count: Int): Int {
         if (count <= 0) return 0
