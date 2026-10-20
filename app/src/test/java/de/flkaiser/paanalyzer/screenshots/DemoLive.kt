@@ -14,7 +14,7 @@ import kotlin.math.sqrt
 import kotlin.random.Random
 
 /**
- * A live analyzer that has listened to 12 s of a synthetic room: background noise, 50 Hz mains hum
+ * A live analyzer that has listened to 16 s of a synthetic room: background noise, 50 Hz mains hum
  * with harmonics, a kick drum every half second, a melody with overtones and a whistle gliding up
  * and down. Runs the real analyzer, so the screenshot shows what the app computes.
  */
@@ -31,7 +31,7 @@ object DemoLive {
         var last: LiveSpectrum? = null
         val melody = doubleArrayOf(220.0, 261.63, 329.63, 392.0, 329.63, 261.63)
         var phase = 0.0
-        val total = 12 * fs
+        val total = 16 * fs
         var n = 0
         while (n < total) {
             for (i in block.indices) {

@@ -2,6 +2,14 @@
 
 All notable changes to PA Analyzer. Versions follow [Semantic Versioning](https://semver.org); releases are the `v*` tags on GitHub, each with the signed arm64 APK.
 
+## [0.4.0] – 2026-10-20
+
+### Added
+- **Live** page: a real-time spectrum analyzer like Spectroid. Spectrum with peak hold (hold or falling) and a marker on the strongest peak (frequency, note name, level), a waterfall of the last 15 seconds that zooms and pans together with the spectrum, a colour scale, input level and clipping warning, cursor readout. Works in portrait and in landscape (full screen).
+- Live analyzer settings behind the wrench: sample rate, FFT size, decimations (finer resolution for the lower octaves), window (Hann, Blackman-Harris, flat top), update interval, averaging, peak hold.
+- Live source **Phone audio** (Android 10+): analyses what the phone plays, e.g. music from another app, captured digitally. Android asks for permission each time; a notification is shown while capturing.
+- The microphone calibration also applies to the live spectrum.
+
 ## [0.3.1] – 2026-10-17
 
 ### Changed
@@ -59,6 +67,7 @@ First release.
 ### Fixed
 - No THD spikes near the end of the sweep: harmonics are only evaluated where the sweep has not started to fade out.
 
+[0.4.0]: https://github.com/KaiFra/PA-Analyzer/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/KaiFra/PA-Analyzer/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/KaiFra/PA-Analyzer/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/KaiFra/PA-Analyzer/compare/v0.1.0...v0.2.1

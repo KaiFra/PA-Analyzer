@@ -290,11 +290,11 @@ private fun LiveHeader(
 private fun statusText(state: UiState): String {
     val s = state.live.settings
     val parts = mutableListOf(
-        state.live.source.label,
         "${formatKhz(s.sampleRate)} kHz",
         "FFT ${s.fftSize}",
         "${formatNumber(s.finestBinWidthHz)} Hz/bin",
     )
+    if (!PlaybackCapture.supported) parts.add(0, state.live.source.label)
     if (state.live.source == LiveSource.MICROPHONE && state.calibration != null) parts += "calibrated"
     return parts.joinToString(" · ")
 }
