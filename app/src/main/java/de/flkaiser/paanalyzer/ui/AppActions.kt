@@ -1,9 +1,14 @@
 package de.flkaiser.paanalyzer.ui
 
+import android.content.Intent
 import android.net.Uri
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.dsp.EqSettings
+import de.flkaiser.paanalyzer.dsp.LiveSettings
+import de.flkaiser.paanalyzer.live.LiveFrame
+import de.flkaiser.paanalyzer.live.LiveSource
+import kotlinx.coroutines.flow.StateFlow
 import de.flkaiser.paanalyzer.settings.SettingsForm
 
 /** Everything the screens can ask for. Implemented by [MeasurementViewModel]; screenshot tests use a no-op. */
@@ -47,6 +52,24 @@ interface AppActions {
 
     /** The current measurement as files for sharing, or null if none is open. */
     fun exportCurrent(): ExportData?
+
+    // ---- Live analyzer ----
+
+    /** Spectra of the live analyzer; a flow of its own, so 20 updates per second don't redraw the whole app. */
+    val liveFrames: StateFlow<LiveFrame?>
+
+    /** The live page is on screen and the app in the foreground: the analyzer runs while this is true. */
+    fun setLiveVisible(visible: Boolean)
+    fun pauseLive(paused: Boolean)
+    fun resetLivePeaks()
+    fun updateLiveSettings(settings: LiveSettings)
+
+    /** Switches to the microphone (phone audio starts with [startPhoneCapture] after the system dialog). */
+    fun selectLiveSource(source: LiveSource)
+
+    /** The user allowed capturing the phone's audio in the system dialog. */
+    fun startPhoneCapture(resultCode: Int, data: Intent)
+    fun phoneCaptureDeclined()
 }
 
 /** A measurement ready for sharing: the CSV and, if available, the recording as WAV. */

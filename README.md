@@ -5,10 +5,12 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - **Fundamental**: frequency response of the whole chain (Bluetooth, amp, speakers, room, mic)
 - **Distortion**: THD and the individual harmonics H2…H10
 - **EQ suggestions**: parametric EQ settings (bells, shelves, a high-pass) to type into your mixer or speaker processor
+- **Live spectrum**: a real-time analyzer with waterfall for the microphone or for what the phone plays
 - **Rub & buzz**: energy far above the excitation frequency (default: above the 10th harmonic), RMS and peak, with a noise-floor reference, to find rattles, rubbing voice coils and loose parts
 
 <p>
   <img src="docs/screenshots/results-portrait.png" width="200" alt="Results: fundamental and THD">
+  <img src="docs/screenshots/live.png" width="200" alt="Live spectrum with waterfall">
   <img src="docs/screenshots/compare.png" width="200" alt="Comparing before and after EQ">
   <img src="docs/screenshots/eq.png" width="200" alt="EQ suggestion">
   <img src="docs/screenshots/measure.png" width="200" alt="Measure page">
@@ -37,6 +39,16 @@ Android app for measuring a PA system with your phone: it plays an exponential s
 - **Compare**: tick saved measurements in the list and choose **Compare** to draw their fundamental (and THD, when shown) on top of the open measurement, e.g. before/after EQ, left/right or two venues. The chips show each one's level at the cursor and the difference to the open measurement; tap a chip to remove it. **Align levels** shifts them to the open measurement's level at 200 Hz – 2 kHz.
 - **Average several positions**: measure 3–5 spots in the audience area and save each, then tick them in the list of saved measurements and choose **Average**. The positions are aligned in level at 200 Hz – 2 kHz and power-averaged (like REW's RMS average): dips from room reflections at one spot are filled by the others, while resonances of the speaker stay. The average is saved as a new measurement, so the EQ page can use it.
 - **Save** keeps the measurement on the phone, together with its recording; the list button opens saved measurements (open, rename, delete) and imports CSV files. **Share** sends the measurement as CSV (readable by spreadsheets) plus the recording as 32-bit float WAV (e.g. for Audacity or REW). Import both files together to get a fully re-analysable copy, for example on another phone.
+
+### Live spectrum
+
+The **Live** page is a real-time spectrum analyzer (like Spectroid):
+
+- The blue curve is the current spectrum, the orange one the peak hold (*Hold* keeps the maximum until you reset it, *Falling* lets it drop by 12 dB/s; tap the chip to switch). The yellow marker shows the strongest peak with frequency, note name and level, handy for hum, feedback or ringing resonances.
+- Below, the waterfall shows the last 15 seconds (newest at the top), coloured with the chart's level range (see the colour bar). Zoom, pan and the cursor work on both together; pinch vertically on the spectrum to change the level range and thus the colours.
+- Choose the source: **Microphone** (the input from Settings, with its calibration) or **Phone audio**: what the phone itself plays, e.g. music from a streaming app, captured digitally before it goes to the Bluetooth PA. Android 10 or newer is needed; Android asks for permission each time (the dialog talks about recording or casting the screen, only the audio is used) and shows a notification while capturing. Apps that block capture stay silent. The capture stops when you leave the page.
+- The wrench opens the analyzer settings: sample rate, FFT size, decimations (each one halves the sample rate for the lower octaves: twice the resolution there, e.g. 2.9 Hz per point below 4.8 kHz with the defaults), window, update interval, averaging and peak hold.
+- Levels are dBFS for tones: a full-scale sine reads 0 dB. In landscape the spectrum gets the whole screen.
 
 ### Microphone calibration
 

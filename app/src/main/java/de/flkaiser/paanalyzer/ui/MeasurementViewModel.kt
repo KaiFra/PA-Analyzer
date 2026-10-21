@@ -26,6 +26,17 @@ import de.flkaiser.paanalyzer.dsp.MeasurementFileException
 import de.flkaiser.paanalyzer.dsp.MeasurementResult
 import de.flkaiser.paanalyzer.dsp.MicCalibration
 import de.flkaiser.paanalyzer.dsp.PositionAverage
+import de.flkaiser.paanalyzer.dsp.LiveSettings
+import de.flkaiser.paanalyzer.dsp.LiveSpectrumAnalyzer
+import de.flkaiser.paanalyzer.audio.AudioException
+import de.flkaiser.paanalyzer.live.LiveFrame
+import de.flkaiser.paanalyzer.live.LiveSource
+import de.flkaiser.paanalyzer.live.PlaybackCapture
+import android.content.Intent
+import android.media.projection.MediaProjection
+import android.os.Build
+import de.flkaiser.paanalyzer.live.WaterfallHistory
+import java.util.concurrent.atomic.AtomicBoolean
 import de.flkaiser.paanalyzer.dsp.PreparedMeasurement
 import de.flkaiser.paanalyzer.dsp.WavFile
 import de.flkaiser.paanalyzer.settings.AppSettings
@@ -34,6 +45,10 @@ import de.flkaiser.paanalyzer.settings.SettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,7 +61,7 @@ import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.util.Date
 
-enum class Page { MEASURE, RESULTS, EQ, SETTINGS }
+enum class Page { MEASURE, RESULTS, EQ, LIVE, SETTINGS }
 
 sealed interface Phase {
     data object Idle : Phase
@@ -70,6 +85,17 @@ data class CurrentMeasurement(
     val curves: List<Curve> by lazy { Curves.build(result) }
 }
 
+/** State of the live analyzer page (the spectra themselves come through [AppActions.liveFrames]). */
+data class LiveUiState(
+    val settings: LiveSettings = LiveSettings(),
+    val source: LiveSource = LiveSource.MICROPHONE,
+    val paused: Boolean = false,
+    val running: Boolean = false,
+    val error: String? = null,
+    /** The phone-audio capture is allowed and running (the system asks again for every new capture). */
+    val phoneCaptureActive: Boolean = false,
+)
+
 data class UiState(
     val page: Page = Page.MEASURE,
     val form: SettingsForm,
@@ -88,6 +114,7 @@ data class UiState(
     val alignComparisons: Boolean = false,
     /** Microphone calibration applied to new measurements, null if none is loaded. */
     val calibration: MicCalibration? = null,
+    val live: LiveUiState = LiveUiState(),
     val eqSettings: EqSettings = EqSettings(),
     /** EQ suggestion for the current measurement, recomputed when it or [eqSettings] change. */
     val eqSuggestion: EqSuggestion? = null,
@@ -118,6 +145,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             visibleCurves = store.loadCurves() ?: Curves.DEFAULT_VISIBLE,
             eqSettings = store.loadEq(),
             calibration = calibrationStore.load(),
+            live = LiveUiState(settings = store.loadLiveSettings(), source = store.loadLiveSource()),
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -159,9 +187,17 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     override fun onCleared() {
         audioManager.unregisterAudioDeviceCallback(deviceCallback)
+        stopPhoneCapture()
     }
 
-    override fun selectPage(page: Page) = _state.update { it.copy(page = page) }
+    override fun selectPage(page: Page) {
+        _state.update { it.copy(page = page) }
+        if (page != Page.LIVE) {
+            stopLive()
+            // Don't keep capturing the phone's audio (and showing the capture notice) away from the live page.
+            stopPhoneCapture()
+        }
+    }
 
     // ---- Devices and settings ----
 
@@ -194,6 +230,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     override fun start() {
         if (_state.value.busy) return
+        stopLive()
         val parsed = _state.value.form.parse()
         val appSettings = parsed.settings ?: run {
             _state.update { it.copy(phase = Phase.Failed(parsed.errors.joinToString("\n"))) }
@@ -418,6 +455,170 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         return ExportData(current.name, csv, wav)
     }
 
+    // ---- Live analyzer ----
+
+    private val _liveFrames = MutableStateFlow<LiveFrame?>(null)
+    override val liveFrames: StateFlow<LiveFrame?> = _liveFrames.asStateFlow()
+    private var liveVisible = false
+    private var liveJob: Job? = null
+    private var liveStop: Job? = null
+    private var waterfall: WaterfallHistory? = null
+    private val resetPeaksRequested = AtomicBoolean(false)
+
+    override fun setLiveVisible(visible: Boolean) {
+        liveVisible = visible
+        liveStop?.cancel()
+        if (visible) {
+            startLive()
+        } else {
+            // Turning the phone recreates the screen; the short delay keeps the input running through that.
+            liveStop = viewModelScope.launch {
+                delay(LIVE_STOP_DELAY_MS)
+                stopLive()
+            }
+        }
+    }
+
+    override fun pauseLive(paused: Boolean) {
+        _state.update { it.copy(live = it.live.copy(paused = paused)) }
+        if (paused) stopLive() else startLive()
+    }
+
+    override fun resetLivePeaks() = resetPeaksRequested.set(true)
+
+    override fun updateLiveSettings(settings: LiveSettings) {
+        if (settings.validate().isNotEmpty()) return
+        val old = _state.value.live.settings
+        _state.update { it.copy(live = it.live.copy(settings = settings)) }
+        store.saveLive(settings, _state.value.live.source)
+        // Averaging and peak hold apply on the fly; everything else needs a new analyzer.
+        if (old.copy(averaging = settings.averaging, peakHold = settings.peakHold) != settings) restartLive()
+    }
+
+    private fun restartLive() {
+        val job = liveJob
+        liveJob = null
+        viewModelScope.launch {
+            job?.cancelAndJoin()
+            startLive()
+        }
+    }
+
+    /** True while this app ends the capture itself (leaving the page, switching to the microphone). */
+    private var stoppingCapture = false
+
+    @Suppress("unused") // Runs for the ViewModel's lifetime; declared after the state it uses.
+    private val captureFollower = viewModelScope.launch { followPlaybackCapture() }
+
+    override fun selectLiveSource(source: LiveSource) {
+        if (source == LiveSource.PHONE || _state.value.live.source == source) return
+        setLiveSource(source)
+        stopPhoneCapture()
+        restartLive()
+    }
+
+    override fun startPhoneCapture(resultCode: Int, data: Intent) {
+        stopLive()
+        setLiveSource(LiveSource.PHONE)
+        PlaybackCapture.start(getApplication(), resultCode, data)
+        // The analyzer starts when the service hands over the capture (see init).
+    }
+
+    override fun phoneCaptureDeclined() =
+        _state.update { it.copy(message = "Phone audio needs the permission to capture what the phone plays.") }
+
+    private fun setLiveSource(source: LiveSource) {
+        _state.update { it.copy(live = it.live.copy(source = source, error = null)) }
+        store.saveLive(_state.value.live.settings, source)
+    }
+
+    private fun stopPhoneCapture() {
+        if (PlaybackCapture.projection.value == null) return
+        stoppingCapture = true
+        PlaybackCapture.stop(getApplication())
+    }
+
+    /** Follows the phone-audio capture: start analysing when it is granted, stop when it ends. */
+    private suspend fun followPlaybackCapture() {
+        var previous: MediaProjection? = null
+        PlaybackCapture.projection.collect { projection ->
+            val intended = stoppingCapture
+            if (projection == null) stoppingCapture = false
+            val ended = previous != null && projection == null
+            previous = projection
+            _state.update { it.copy(live = it.live.copy(phoneCaptureActive = projection != null)) }
+            if (_state.value.live.source != LiveSource.PHONE) return@collect
+            if (projection != null) {
+                restartLive()
+            } else {
+                stopLive()
+                if (ended && !intended) _state.update { it.copy(message = "Phone audio capture ended.") }
+            }
+        }
+    }
+
+    private fun stopLive() {
+        liveJob?.cancel()
+        liveJob = null
+    }
+
+    private fun startLive() {
+        val s = _state.value
+        if (!liveVisible || s.page != Page.LIVE || s.live.paused || s.busy || liveJob?.isActive == true) return
+        val live = s.live
+        val projection = PlaybackCapture.projection.value
+        // Phone audio waits for the user to allow the capture (the page shows a button for it).
+        if (live.source == LiveSource.PHONE && projection == null) return
+        val calibration = if (live.source == LiveSource.MICROPHONE) s.calibration else null
+        val input = s.selectedInput?.let { option -> engine.inputDevices().firstOrNull { it.id == option.id } }
+        val history = waterfall?.takeIf { it.fits(live.settings) } ?: WaterfallHistory.create(live.settings).also { waterfall = it }
+        liveJob = viewModelScope.launch {
+            _state.update { it.copy(live = it.live.copy(running = true, error = null)) }
+            try {
+                withContext(Dispatchers.IO) { runLive(live.settings, live.source, input, projection, calibration, history) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(live = it.live.copy(error = e.message ?: e.javaClass.simpleName)) }
+            } finally {
+                _state.update { it.copy(live = it.live.copy(running = false)) }
+            }
+        }
+    }
+
+    private suspend fun runLive(
+        settings: LiveSettings,
+        source: LiveSource,
+        input: AudioDeviceInfo?,
+        projection: MediaProjection?,
+        calibration: MicCalibration?,
+        history: WaterfallHistory,
+    ) {
+        val analyzer = LiveSpectrumAnalyzer(settings, calibration)
+        val audio = when (source) {
+            LiveSource.MICROPHONE -> engine.openLiveMic(settings.sampleRate, input)
+            LiveSource.PHONE -> if (projection != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                engine.openPlaybackCapture(projection, settings.sampleRate)
+            } else {
+                throw AudioException("Capturing phone audio needs Android 10 or newer.")
+            }
+        }
+        audio.use {
+            val buffer = FloatArray(settings.sampleRate / 100)
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val n = it.read(buffer)
+                val tuning = _state.value.live.settings
+                analyzer.averaging = tuning.averaging
+                analyzer.peakHold = tuning.peakHold
+                if (resetPeaksRequested.getAndSet(false)) analyzer.resetPeaks()
+                val spectrum = analyzer.process(buffer, 0, n) ?: continue
+                history.add(spectrum)
+                _liveFrames.value = LiveFrame(spectrum, history, settings, source, calibration?.name)
+            }
+        }
+    }
+
     private fun show(doc: MeasurementDocument, id: String, recording: FloatArray?) {
         prepared = null
         _state.update {
@@ -466,5 +667,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     private fun defaultName(millis: Long): String =
         "Measurement " + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(millis))
 }
+
+private const val LIVE_STOP_DELAY_MS = 600L
 
 private fun AudioDeviceInfo.toOption() = DeviceOption(id = id, type = type, name = productName?.toString().orEmpty().ifBlank { "Device $id" })

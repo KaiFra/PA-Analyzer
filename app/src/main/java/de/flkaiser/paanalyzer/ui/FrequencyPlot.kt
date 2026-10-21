@@ -6,12 +6,15 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -33,7 +36,22 @@ class PlotSeries(
     val color: Color,
     val dashed: Boolean = false,
     val width: Float = 2f,
+    /** Fills the area below the line with a gradient that fades out towards the bottom. */
+    val fill: Boolean = false,
+    /** How points that fall into the same pixel column are drawn (for dense FFT spectra). */
+    val reduce: PlotReduce = PlotReduce.NONE,
 )
+
+enum class PlotReduce {
+    /** Every point is drawn. */
+    NONE,
+
+    /** One point per pixel column: the highest, so narrow peaks stay visible and noise doesn't turn into a solid band. */
+    MAX,
+}
+
+/** A labelled point on the chart, e.g. the strongest peak. */
+class PlotMarker(val frequencyHz: Double, val value: Double, val label: String, val color: Color)
 
 /** What the chart's gestures ask for. Ranges are owned by the caller. */
 interface PlotGestures {
@@ -58,61 +76,22 @@ fun FrequencyPlot(
     cursorHz: Double?,
     gestures: PlotGestures,
     modifier: Modifier = Modifier,
+    markers: List<PlotMarker> = emptyList(),
 ) {
     val textMeasurer = rememberTextMeasurer()
     val gridColor = MaterialTheme.colorScheme.outlineVariant
     val axisColor = MaterialTheme.colorScheme.outline
     val labelStyle = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
+    val markerStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface, fontSize = 11.sp)
+    val markerBackground = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f)
     val cursorColor = MaterialTheme.colorScheme.primary
     val currentX by rememberUpdatedState(xRange)
     val currentGestures by rememberUpdatedState(gestures)
-    val lastTap = remember { longArrayOf(0L) }
 
     Canvas(
         modifier
             .clipToBounds()
-            .pointerInput(Unit) {
-                val left = LEFT_MARGIN.toPx()
-                val bottom = BOTTOM_MARGIN.toPx()
-                fun plotWidth() = (size.width - left).coerceAtLeast(1f)
-                fun plotHeight() = (size.height - bottom).coerceAtLeast(1f)
-                fun frequencyAt(x: Float) = PlotMath.xToFrequency(x - left, currentX.start, currentX.endInclusive, plotWidth())
-
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    currentGestures.cursor(frequencyAt(down.position.x))
-                    var multiTouch = false
-                    var moved = false
-                    var upTime = down.uptimeMillis
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val pressed = event.changes.filter { it.pressed }
-                        if (pressed.isEmpty()) {
-                            upTime = event.changes.firstOrNull()?.uptimeMillis ?: upTime
-                            break
-                        }
-                        if (pressed.size >= 2) {
-                            multiTouch = true
-                            pinch(pressed[0], pressed[1], left, plotWidth(), plotHeight(), currentGestures)
-                            event.changes.forEach { it.consume() }
-                        } else if (!multiTouch) {
-                            val c = pressed[0]
-                            if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
-                            currentGestures.cursor(frequencyAt(c.position.x))
-                            c.consume()
-                        }
-                    }
-                    val isTap = !multiTouch && !moved && upTime - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
-                    if (isTap) {
-                        if (upTime - lastTap[0] < viewConfiguration.doubleTapTimeoutMillis) {
-                            currentGestures.reset()
-                            lastTap[0] = 0L
-                        } else {
-                            lastTap[0] = upTime
-                        }
-                    }
-                }
-            },
+            .plotGestures({ currentX }, { currentGestures }, BOTTOM_MARGIN),
     ) {
         val left = LEFT_MARGIN.toPx()
         val bottom = BOTTOM_MARGIN.toPx()
@@ -146,6 +125,73 @@ fun FrequencyPlot(
         cursorHz?.takeIf { it in xRange }?.let {
             val x = left + PlotMath.frequencyToX(it, minHz, maxHz, w)
             drawLine(cursorColor, Offset(x, 0f), Offset(x, h), strokeWidth = 1.5f)
+        }
+        for (m in markers) {
+            if (m.frequencyHz !in xRange || !m.value.isFinite() || m.value !in yRange) continue
+            val point = Offset(left + PlotMath.frequencyToX(m.frequencyHz, minHz, maxHz, w), PlotMath.valueToY(m.value, yRange.start, yRange.endInclusive, h))
+            drawCircle(m.color, radius = 4.dp.toPx(), center = point, style = Stroke(width = 1.5.dp.toPx()))
+            val layout = textMeasurer.measure(m.label, markerStyle)
+            val pad = 4.dp.toPx()
+            val boxW = layout.size.width + 2 * pad
+            val boxH = layout.size.height + pad
+            val above = point.y - 8.dp.toPx() - boxH
+            val top = if (above >= 0f) above else point.y + 8.dp.toPx()
+            val boxLeft = (point.x - boxW / 2).coerceIn(left, (size.width - boxW).coerceAtLeast(left))
+            drawRoundRect(markerBackground, topLeft = Offset(boxLeft, top), size = Size(boxW, boxH), cornerRadius = CornerRadius(boxH / 2))
+            drawRoundRect(m.color, topLeft = Offset(boxLeft, top), size = Size(boxW, boxH), cornerRadius = CornerRadius(boxH / 2), style = Stroke(width = 1.dp.toPx()))
+            drawText(layout, topLeft = Offset(boxLeft + pad, top + pad / 2))
+        }
+    }
+}
+
+/**
+ * Touch handling shared by the chart and the waterfall below it.
+ * One finger: cursor. Two fingers: pinch to zoom and drag to pan. Double tap: reset.
+ */
+internal fun Modifier.plotGestures(
+    xRange: () -> ClosedFloatingPointRange<Double>,
+    gestures: () -> PlotGestures,
+    bottomMargin: Dp,
+): Modifier = pointerInput(Unit) {
+    val left = PLOT_LEFT_MARGIN.toPx()
+    val bottom = bottomMargin.toPx()
+    fun plotWidth() = (size.width - left).coerceAtLeast(1f)
+    fun plotHeight() = (size.height - bottom).coerceAtLeast(1f)
+    fun frequencyAt(x: Float) = PlotMath.xToFrequency(x - left, xRange().start, xRange().endInclusive, plotWidth())
+    var lastTap = 0L
+
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        gestures().cursor(frequencyAt(down.position.x))
+        var multiTouch = false
+        var moved = false
+        var upTime = down.uptimeMillis
+        while (true) {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.filter { it.pressed }
+            if (pressed.isEmpty()) {
+                upTime = event.changes.firstOrNull()?.uptimeMillis ?: upTime
+                break
+            }
+            if (pressed.size >= 2) {
+                multiTouch = true
+                pinch(pressed[0], pressed[1], left, plotWidth(), plotHeight(), gestures())
+                event.changes.forEach { it.consume() }
+            } else if (!multiTouch) {
+                val c = pressed[0]
+                if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                gestures().cursor(frequencyAt(c.position.x))
+                c.consume()
+            }
+        }
+        val isTap = !multiTouch && !moved && upTime - down.uptimeMillis < viewConfiguration.longPressTimeoutMillis
+        if (isTap) {
+            if (upTime - lastTap < viewConfiguration.doubleTapTimeoutMillis) {
+                gestures().reset()
+                lastTap = 0L
+            } else {
+                lastTap = upTime
+            }
         }
     }
 }
@@ -181,22 +227,48 @@ private fun DrawScope.drawSeries(
     h: Float,
 ) {
     val path = Path()
+    val fillPath = if (s.fill) Path() else null
     var penDown = false
+    var segmentStart = 0f
+    var lastX = 0f
+    fun closeFill() {
+        if (penDown && fillPath != null) {
+            fillPath.lineTo(lastX, h)
+            fillPath.lineTo(segmentStart, h)
+            fillPath.close()
+        }
+    }
+    val (xs, values) = when (s.reduce) {
+        PlotReduce.NONE -> FloatArray(s.frequencies.size) { PlotMath.frequencyToX(s.frequencies[it], minHz, maxHz, w) } to s.values
+        PlotReduce.MAX -> PlotMath.maxEnvelope(s.frequencies, s.values, minHz, maxHz, w)
+    }
     // Points outside the visible range are kept so lines run to the border when zoomed in; the caller clips.
-    for (i in s.frequencies.indices) {
-        val f = s.frequencies[i]
-        val v = s.values[i]
+    val span = range.endInclusive - range.start
+    for (i in xs.indices) {
+        val v = values[i]
         if (!v.isFinite()) {
+            closeFill()
             penDown = false
             continue
         }
         // Keep extreme values just outside the plot so lines leave the frame instead of vanishing.
-        val span = range.endInclusive - range.start
         val clamped = PlotMath.clamp(v, (range.start - span)..(range.endInclusive + span))
-        val x = PlotMath.frequencyToX(f, minHz, maxHz, w)
+        val x = xs[i]
         val y = PlotMath.valueToY(clamped, range.start, range.endInclusive, h)
-        if (penDown) path.lineTo(x, y) else path.moveTo(x, y)
+        if (penDown) {
+            path.lineTo(x, y)
+            fillPath?.lineTo(x, y)
+        } else {
+            path.moveTo(x, y)
+            fillPath?.moveTo(x, y)
+            segmentStart = x
+        }
+        lastX = x
         penDown = true
+    }
+    closeFill()
+    if (fillPath != null) {
+        drawPath(fillPath, brush = Brush.verticalGradient(listOf(s.color.copy(alpha = 0.38f), s.color.copy(alpha = 0.02f)), startY = 0f, endY = h))
     }
     drawPath(
         path,
@@ -208,5 +280,7 @@ private fun DrawScope.drawSeries(
     )
 }
 
-private val LEFT_MARGIN = 36.dp
+/** Width of the value labels left of the plot; the waterfall uses the same margin so both line up. */
+internal val PLOT_LEFT_MARGIN = 36.dp
+private val LEFT_MARGIN = PLOT_LEFT_MARGIN
 private val BOTTOM_MARGIN = 18.dp

@@ -3,6 +3,8 @@ package de.flkaiser.paanalyzer.settings
 import android.content.Context
 import androidx.core.content.edit
 import de.flkaiser.paanalyzer.dsp.EqSettings
+import de.flkaiser.paanalyzer.dsp.LiveSettings
+import de.flkaiser.paanalyzer.live.LiveSource
 
 class SettingsStore(context: Context) {
 
@@ -23,6 +25,14 @@ class SettingsStore(context: Context) {
 
     fun saveEq(settings: EqSettings) = prefs.edit {
         for ((k, v) in EqSettingsCodec.encode(settings)) putString(k, v)
+    }
+
+    fun loadLiveSettings(): LiveSettings = LiveSettingsCodec.decodeSettings(stringValues())
+
+    fun loadLiveSource(): LiveSource = LiveSettingsCodec.decodeSource(stringValues())
+
+    fun saveLive(settings: LiveSettings, source: LiveSource) = prefs.edit {
+        for ((k, v) in LiveSettingsCodec.encode(settings, source)) putString(k, v)
     }
 
     private fun stringValues(): Map<String, String> = prefs.all.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
