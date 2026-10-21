@@ -37,7 +37,11 @@ import androidx.compose.ui.unit.dp
 import de.flkaiser.paanalyzer.BuildConfig
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.OutputChannel
+import de.flkaiser.paanalyzer.dsp.MicCalibration
 import de.flkaiser.paanalyzer.dsp.Smoothing
+import de.flkaiser.paanalyzer.settings.SettingsForm
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import de.flkaiser.paanalyzer.dsp.SweepSettings
 
 @Composable
@@ -45,6 +49,9 @@ fun SettingsScreen(state: UiState, viewModel: AppActions) {
     val form = state.form
     val enabled = !state.busy
     val update = viewModel::updateForm
+    val calibrationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::loadCalibration)
+    }
 
     Column(
         Modifier
@@ -69,6 +76,7 @@ fun SettingsScreen(state: UiState, viewModel: AppActions) {
             "Microphone processing: ${state.micSource}. Phone microphones are not calibrated; compare measurements " +
                 "made with the same phone and position, or use a USB measurement microphone.",
         )
+        Calibration(state.calibration, enabled, onLoad = { calibrationLauncher.launch(arrayOf("*/*")) }, onClear = viewModel::clearCalibration)
         Choice("Bluetooth channel", OutputChannel.entries, form.channel, { it.label }, enabled) { update(form.copy(channel = it)) }
 
         Section("Sweep")
@@ -112,6 +120,28 @@ fun SettingsScreen(state: UiState, viewModel: AppActions) {
 }
 
 @Composable
+private fun Calibration(calibration: MicCalibration?, enabled: Boolean, onLoad: () -> Unit, onClear: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Microphone calibration", style = MaterialTheme.typography.labelLarge)
+        if (calibration == null) {
+            Hint("None. Load the calibration file of a measurement microphone (e.g. UMIK-1: the 90° file when the mic points up).")
+        } else {
+            Text(calibration.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Hint(
+                "${calibration.size} points, ${PlotMath.formatFrequency(calibration.frequencies.first())} Hz – " +
+                    "${PlotMath.formatFrequency(calibration.frequencies.last())} Hz" +
+                    (calibration.sensitivityDb?.let { ", sensitivity ${SettingsForm.format(it)} dB" } ?: "") +
+                    ". Applied to new measurements and when analysing again; only use it with that microphone.",
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onLoad, enabled = enabled) { Text(if (calibration == null) "Load file" else "Replace") }
+            if (calibration != null) TextButton(onClick = onClear, enabled = enabled) { Text("Remove") }
+        }
+    }
+}
+
+@Composable
 private fun About() {
     val uriHandler = LocalUriHandler.current
     Card(Modifier.fillMaxWidth()) {
@@ -133,16 +163,12 @@ private fun About() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row {
-                TextButton(onClick = { uriHandler.openUri(SOURCE_URL) }) { Text("Source code") }
-                TextButton(onClick = { uriHandler.openUri(WEBSITE_URL) }) { Text("flkaiser.de") }
-            }
+            TextButton(onClick = { uriHandler.openUri(SOURCE_URL) }) { Text("Source code") }
         }
     }
 }
 
 private const val SOURCE_URL = "https://github.com/KaiFra/PA-Analyzer"
-private const val WEBSITE_URL = "https://flkaiser.de"
 
 @Composable
 private fun DevicePicker(

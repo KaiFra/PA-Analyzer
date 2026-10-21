@@ -22,11 +22,25 @@ interface AppActions {
     fun loadSaved(id: String)
     fun renameSaved(id: String, name: String)
     fun deleteSaved(id: String)
+
+    /** Averages saved measurements from several positions into a new saved measurement and opens it. */
+    fun averageSaved(ids: List<String>)
+
+    /** Draws saved measurements on top of the current one (replaces the previous comparison). */
+    fun compareSaved(ids: List<String>)
+    fun removeComparison(id: String)
+
+    /** Shifts compared measurements to the current one's mid-band level. */
+    fun alignComparisons(align: Boolean)
     /** Imports a measurement CSV, optionally together with its WAV recording. */
     fun importFiles(uris: List<Uri>)
 
     /** Evaluates the current measurement's recording again with other analysis settings. */
     fun reanalyze(analysis: AnalysisSettings)
+
+    /** Loads a microphone calibration file; it is applied to new measurements and re-analyses. */
+    fun loadCalibration(uri: Uri)
+    fun clearCalibration()
 
     /** Changes the EQ suggestion settings; the suggestion is recomputed automatically. */
     fun updateEqSettings(settings: EqSettings)

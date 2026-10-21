@@ -29,6 +29,8 @@ class MeasurementResult(
     /** Peak of the impulse response relative to the noise after it. */
     val irSnrDb: Double,
     val warnings: List<String>,
+    /** Name of the microphone calibration applied to the curves, null if none. */
+    val calibration: String? = null,
 )
 
 class MeasurementException(message: String) : Exception(message)

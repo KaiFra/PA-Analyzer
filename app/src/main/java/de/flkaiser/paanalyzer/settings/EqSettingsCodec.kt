@@ -8,7 +8,9 @@ import de.flkaiser.paanalyzer.dsp.FilterType
 object EqSettingsCodec {
 
     fun encode(s: EqSettings): Map<String, String> = mapOf(
-        "eq.target" to s.target.name,
+        "eq.tilt" to s.tiltDbPerOctave.toString(),
+        "eq.bassBoostDb" to s.bassBoostDb.toString(),
+        "eq.bassBoostHz" to s.bassBoostHz.toString(),
         "eq.filterCount" to s.filterCount.toString(),
         "eq.minHz" to s.minHz.toString(),
         "eq.maxHz" to s.maxHz.toString(),
@@ -19,9 +21,12 @@ object EqSettingsCodec {
     )
 
     fun decode(values: Map<String, String>): EqSettings {
-        val d = EqSettings()
+        // Version 0.2 stored a preset name instead of tilt and bass boost.
+        val d = EqTarget.entries.firstOrNull { it.name == values["eq.target"] }?.applyTo(EqSettings()) ?: EqSettings()
         val s = EqSettings(
-            target = EqTarget.entries.firstOrNull { it.name == values["eq.target"] } ?: d.target,
+            tiltDbPerOctave = values["eq.tilt"]?.toDoubleOrNull() ?: d.tiltDbPerOctave,
+            bassBoostDb = values["eq.bassBoostDb"]?.toDoubleOrNull() ?: d.bassBoostDb,
+            bassBoostHz = values["eq.bassBoostHz"]?.toDoubleOrNull() ?: d.bassBoostHz,
             filterCount = values["eq.filterCount"]?.toIntOrNull() ?: d.filterCount,
             minHz = values["eq.minHz"]?.toDoubleOrNull() ?: d.minHz,
             maxHz = values["eq.maxHz"]?.toDoubleOrNull() ?: d.maxHz,
@@ -34,6 +39,6 @@ object EqSettingsCodec {
                 ?.toSet()
                 ?: d.filterTypes,
         )
-        return if (s.validate().isEmpty()) s else d
+        return if (s.validate().isEmpty()) s else EqSettings()
     }
 }

@@ -18,7 +18,7 @@ class MeasurementFileException(message: String) : Exception(message)
  * ```
  * # PA Analyzer measurement
  * # format=1
- * # name=…, created=…, setting.*=…, delay_ms=…, warning=…
+ * # name=…, created=…, setting.*=…, delay_ms=…, warning=…, calibration=…
  *
  * frequency_hz,fundamental_db,thd_db,thd_percent,h2_db,…
  * …
@@ -46,6 +46,7 @@ object MeasurementFile {
         appendLine("# input_peak_dbfs=${r.inputPeakDbfs}")
         appendLine("# ir_snr_db=${r.irSnrDb}")
         for (w in r.warnings) appendLine("# warning=${singleLine(w)}")
+        r.calibration?.let { appendLine("# calibration=${singleLine(it)}") }
         appendLine()
 
         append(DISTORTION_HEADER)
@@ -112,6 +113,7 @@ object MeasurementFile {
             inputPeakDbfs = meta.single["input_peak_dbfs"]?.toDoubleOrNull() ?: Double.NaN,
             irSnrDb = meta.single["ir_snr_db"]?.toDoubleOrNull() ?: Double.NaN,
             warnings = meta.multi["warning"].orEmpty(),
+            calibration = meta.single["calibration"]?.ifBlank { null },
         )
         return MeasurementDocument(
             name = meta.single["name"] ?: "",
