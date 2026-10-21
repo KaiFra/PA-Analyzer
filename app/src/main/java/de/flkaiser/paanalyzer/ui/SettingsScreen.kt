@@ -38,7 +38,6 @@ import de.flkaiser.paanalyzer.BuildConfig
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.OutputChannel
 import de.flkaiser.paanalyzer.dsp.MicCalibration
-import de.flkaiser.paanalyzer.dsp.Smoothing
 import de.flkaiser.paanalyzer.settings.SettingsForm
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -101,16 +100,7 @@ fun SettingsScreen(state: UiState, viewModel: AppActions) {
         }
         Hint("The silence before each sweep is used to estimate background noise; the silence after it must cover the room's reverberation.")
 
-        Section("Analysis")
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            NumberField("IR window", form.irWindowMs, "ms", enabled, Modifier.weight(1f)) { update(form.copy(irWindowMs = it)) }
-            NumberField("Harmonics up to", form.maxHarmonic, "", enabled, Modifier.weight(1f), KeyboardType.Number) { update(form.copy(maxHarmonic = it)) }
-            NumberField("R&B from order", form.rubBuzzStartOrder, "", enabled, Modifier.weight(1f), KeyboardType.Number) {
-                update(form.copy(rubBuzzStartOrder = it))
-            }
-        }
-        Choice("Smoothing", Smoothing.entries, form.smoothing, { it.label }, enabled) { update(form.copy(smoothing = it)) }
-        Hint("A short IR window (e.g. 10 ms) removes room reflections but loses resolution below about 1 / window length.")
+        Hint("Smoothing, IR window, harmonics and rub & buzz order are set with the wrench on the Results page, after a measurement.")
 
         OutlinedButton(onClick = viewModel::resetSettings, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("Reset to defaults") }
 
