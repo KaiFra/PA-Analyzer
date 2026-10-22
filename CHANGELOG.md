@@ -2,6 +2,11 @@
 
 All notable changes to PA Analyzer. Versions follow [Semantic Versioning](https://semver.org); releases are the `v*` tags on GitHub, each with the signed arm64 APK.
 
+## [0.4.1] – 2026-10-22
+
+### Added
+- Live analyzer: choose the microphone source (processing) like in Spectroid – Automatic, Unprocessed, Voice recognition, Voice performance, Microphone, Camcorder, Default – in the analyzer settings. Only sources the phone offers are listed; measurements keep using the automatic choice.
+
 ## [0.4.0] – 2026-10-20
 
 ### Added
@@ -67,6 +72,7 @@ First release.
 ### Fixed
 - No THD spikes near the end of the sweep: harmonics are only evaluated where the sweep has not started to fade out.
 
+[0.4.1]: https://github.com/KaiFra/PA-Analyzer/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/KaiFra/PA-Analyzer/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/KaiFra/PA-Analyzer/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/KaiFra/PA-Analyzer/compare/v0.2.1...v0.3.0

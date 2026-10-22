@@ -15,6 +15,7 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.captureRoboImage
 import de.flkaiser.paanalyzer.audio.DeviceOption
+import de.flkaiser.paanalyzer.audio.MicSource
 import de.flkaiser.paanalyzer.data.SavedEntry
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.dsp.EqDesigner
@@ -145,6 +146,7 @@ class ScreenshotTest {
         override fun pauseLive(paused: Boolean) {}
         override fun resetLivePeaks() {}
         override fun updateLiveSettings(settings: LiveSettings) {}
+        override fun selectMicSource(source: MicSource) {}
         override fun selectLiveSource(source: LiveSource) {}
         override fun startPhoneCapture(resultCode: Int, data: Intent) {}
         override fun phoneCaptureDeclined() {}

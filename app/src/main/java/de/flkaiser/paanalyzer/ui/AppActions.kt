@@ -3,6 +3,7 @@ package de.flkaiser.paanalyzer.ui
 import android.content.Intent
 import android.net.Uri
 import de.flkaiser.paanalyzer.audio.DeviceOption
+import de.flkaiser.paanalyzer.audio.MicSource
 import de.flkaiser.paanalyzer.dsp.AnalysisSettings
 import de.flkaiser.paanalyzer.dsp.EqSettings
 import de.flkaiser.paanalyzer.dsp.LiveSettings
@@ -63,6 +64,9 @@ interface AppActions {
     fun pauseLive(paused: Boolean)
     fun resetLivePeaks()
     fun updateLiveSettings(settings: LiveSettings)
+
+    /** Android microphone source (processing) for the live analyzer. */
+    fun selectMicSource(source: MicSource)
 
     /** Switches to the microphone (phone audio starts with [startPhoneCapture] after the system dialog). */
     fun selectLiveSource(source: LiveSource)

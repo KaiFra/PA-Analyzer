@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import de.flkaiser.paanalyzer.audio.MicSource
 import de.flkaiser.paanalyzer.dsp.LiveSettings
 import de.flkaiser.paanalyzer.dsp.MusicalNote
 import de.flkaiser.paanalyzer.dsp.PeakHold
@@ -163,8 +164,11 @@ fun LiveScreen(state: UiState, viewModel: AppActions, landscape: Boolean) {
     if (showSettings) {
         LiveSettingsDialog(
             initial = live.settings,
-            onApply = {
-                viewModel.updateLiveSettings(it)
+            initialMicSource = live.micSource,
+            micSources = live.micSources,
+            onApply = { settings, micSource ->
+                viewModel.updateLiveSettings(settings)
+                viewModel.selectMicSource(micSource)
                 showSettings = false
             },
             onDismiss = { showSettings = false },
@@ -295,6 +299,7 @@ private fun statusText(state: UiState): String {
         "${formatNumber(s.finestBinWidthHz)} Hz/bin",
     )
     if (!PlaybackCapture.supported) parts.add(0, state.live.source.label)
+    if (state.live.source == LiveSource.MICROPHONE && state.live.micSource != MicSource.AUTO) parts.add(0, state.live.micSource.label)
     if (state.live.source == LiveSource.MICROPHONE && state.calibration != null) parts += "calibrated"
     return parts.joinToString(" · ")
 }
@@ -495,13 +500,22 @@ internal fun timeStep(seconds: Double, maxLabels: Int): Double =
     listOf(1.0, 2.0, 5.0, 10.0, 15.0, 20.0, 30.0, 60.0).firstOrNull { seconds / it <= maxLabels } ?: 60.0
 
 @Composable
-private fun LiveSettingsDialog(initial: LiveSettings, onApply: (LiveSettings) -> Unit, onDismiss: () -> Unit) {
+private fun LiveSettingsDialog(
+    initial: LiveSettings,
+    initialMicSource: MicSource,
+    micSources: List<MicSource>,
+    onApply: (LiveSettings, MicSource) -> Unit,
+    onDismiss: () -> Unit,
+) {
     var s by remember { mutableStateOf(initial) }
+    var mic by remember { mutableStateOf(initialMicSource) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Analyzer settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Choice("Microphone processing (audio source)", micSources, mic, { it.label }, enabled = true) { mic = it }
+                Hint(mic.description + ". Not used for phone audio.")
                 Choice("Sample rate", LiveSettings.SAMPLE_RATES, s.sampleRate, { "${formatKhz(it)} kHz" }, enabled = true) { s = s.copy(sampleRate = it) }
                 StepSlider(
                     "FFT size: ${s.fftSize} · ${formatNumber(s.binWidthHz)} Hz/bin · ${s.blockMs.roundToInt()} ms",
@@ -531,10 +545,13 @@ private fun LiveSettingsDialog(initial: LiveSettings, onApply: (LiveSettings) ->
                 Hint("Exponential smoothing of successive spectra: 0 follows every change, higher values give a calmer curve.")
                 Choice("Peak hold", PeakHold.entries, s.peakHold, { it.label }, enabled = true) { s = s.copy(peakHold = it) }
                 Hint("Falling: held peaks drop by ${LiveSettings.FALL_DB_PER_SEC.roundToInt()} dB per second. The reset button clears them.")
-                TextButton(onClick = { s = LiveSettings() }) { Text("Reset to defaults") }
+                TextButton(onClick = {
+                    s = LiveSettings()
+                    mic = MicSource.AUTO
+                }) { Text("Reset to defaults") }
             }
         },
-        confirmButton = { TextButton(onClick = { onApply(s) }) { Text("Apply") } },
+        confirmButton = { TextButton(onClick = { onApply(s, mic) }) { Text("Apply") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }
