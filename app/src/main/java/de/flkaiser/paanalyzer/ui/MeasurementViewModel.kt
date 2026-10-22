@@ -11,6 +11,7 @@ import android.provider.OpenableColumns
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import de.flkaiser.paanalyzer.audio.AudioEngine
+import de.flkaiser.paanalyzer.audio.MicSource
 import de.flkaiser.paanalyzer.audio.DeviceOption
 import de.flkaiser.paanalyzer.audio.DeviceSelection
 import de.flkaiser.paanalyzer.data.CalibrationStore
@@ -89,6 +90,10 @@ data class CurrentMeasurement(
 data class LiveUiState(
     val settings: LiveSettings = LiveSettings(),
     val source: LiveSource = LiveSource.MICROPHONE,
+    /** Android microphone source (processing) for the live analyzer. */
+    val micSource: MicSource = MicSource.AUTO,
+    /** Sources the phone offers. */
+    val micSources: List<MicSource> = MicSource.entries,
     val paused: Boolean = false,
     val running: Boolean = false,
     val error: String? = null,
@@ -145,7 +150,12 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
             visibleCurves = store.loadCurves() ?: Curves.DEFAULT_VISIBLE,
             eqSettings = store.loadEq(),
             calibration = calibrationStore.load(),
-            live = LiveUiState(settings = store.loadLiveSettings(), source = store.loadLiveSource()),
+            live = LiveUiState(
+                settings = store.loadLiveSettings(),
+                source = store.loadLiveSource(),
+                micSource = store.loadLiveMicSource().takeIf { it in engine.micSources } ?: MicSource.AUTO,
+                micSources = engine.micSources,
+            ),
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -490,7 +500,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
         if (settings.validate().isNotEmpty()) return
         val old = _state.value.live.settings
         _state.update { it.copy(live = it.live.copy(settings = settings)) }
-        store.saveLive(settings, _state.value.live.source)
+        store.saveLive(settings, _state.value.live.source, _state.value.live.micSource)
         // Averaging and peak hold apply on the fly; everything else needs a new analyzer.
         if (old.copy(averaging = settings.averaging, peakHold = settings.peakHold) != settings) restartLive()
     }
@@ -509,6 +519,14 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     @Suppress("unused") // Runs for the ViewModel's lifetime; declared after the state it uses.
     private val captureFollower = viewModelScope.launch { followPlaybackCapture() }
+
+    override fun selectMicSource(source: MicSource) {
+        if (source == _state.value.live.micSource) return
+        _state.update { it.copy(live = it.live.copy(micSource = source)) }
+        val live = _state.value.live
+        store.saveLive(live.settings, live.source, source)
+        if (live.source == LiveSource.MICROPHONE) restartLive()
+    }
 
     override fun selectLiveSource(source: LiveSource) {
         if (source == LiveSource.PHONE || _state.value.live.source == source) return
@@ -529,7 +547,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun setLiveSource(source: LiveSource) {
         _state.update { it.copy(live = it.live.copy(source = source, error = null)) }
-        store.saveLive(_state.value.live.settings, source)
+        store.saveLive(_state.value.live.settings, source, _state.value.live.micSource)
     }
 
     private fun stopPhoneCapture() {
@@ -596,7 +614,7 @@ class MeasurementViewModel(application: Application) : AndroidViewModel(applicat
     ) {
         val analyzer = LiveSpectrumAnalyzer(settings, calibration)
         val audio = when (source) {
-            LiveSource.MICROPHONE -> engine.openLiveMic(settings.sampleRate, input)
+            LiveSource.MICROPHONE -> engine.openLiveMic(settings.sampleRate, input, _state.value.live.micSource)
             LiveSource.PHONE -> if (projection != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 engine.openPlaybackCapture(projection, settings.sampleRate)
             } else {

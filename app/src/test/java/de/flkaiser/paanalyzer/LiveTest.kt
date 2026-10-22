@@ -1,5 +1,6 @@
 package de.flkaiser.paanalyzer
 
+import de.flkaiser.paanalyzer.audio.MicSource
 import de.flkaiser.paanalyzer.dsp.LiveSettings
 import de.flkaiser.paanalyzer.dsp.LiveSpectrum
 import de.flkaiser.paanalyzer.dsp.PeakHold
@@ -34,6 +35,19 @@ class LiveTest {
         assertEquals(s, LiveSettingsCodec.decodeSettings(values))
         assertEquals(LiveSource.PHONE, LiveSettingsCodec.decodeSource(values))
         assertTrue(values.keys.all { it.startsWith("live.") })
+    }
+
+    @Test
+    fun micSourceIsStoredAndFiltered() {
+        val values = LiveSettingsCodec.encode(LiveSettings(), LiveSource.MICROPHONE, MicSource.DEFAULT)
+        assertEquals(MicSource.DEFAULT, LiveSettingsCodec.decodeMicSource(values))
+        assertEquals(MicSource.AUTO, LiveSettingsCodec.decodeMicSource(emptyMap()))
+        assertEquals(MicSource.AUTO, LiveSettingsCodec.decodeMicSource(mapOf("live.micSource" to "TELEPATHY")))
+        // Unprocessed only where the phone offers it, voice performance from Android 10.
+        assertTrue(MicSource.UNPROCESSED !in MicSource.available(supportsUnprocessed = false, sdk = 34))
+        assertTrue(MicSource.VOICE_PERFORMANCE !in MicSource.available(supportsUnprocessed = true, sdk = 28))
+        assertEquals(MicSource.entries, MicSource.available(supportsUnprocessed = true, sdk = 34))
+        assertEquals(MicSource.AUTO, MicSource.available(false, 26).first())
     }
 
     @Test

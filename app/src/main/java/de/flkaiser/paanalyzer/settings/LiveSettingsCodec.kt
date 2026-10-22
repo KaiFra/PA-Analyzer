@@ -1,5 +1,6 @@
 package de.flkaiser.paanalyzer.settings
 
+import de.flkaiser.paanalyzer.audio.MicSource
 import de.flkaiser.paanalyzer.dsp.LiveSettings
 import de.flkaiser.paanalyzer.dsp.PeakHold
 import de.flkaiser.paanalyzer.dsp.WindowFunction
@@ -8,7 +9,7 @@ import de.flkaiser.paanalyzer.live.LiveSource
 /** Stores the live analyzer's settings as key/value pairs ("live." keys); invalid values fall back to the defaults. */
 object LiveSettingsCodec {
 
-    fun encode(s: LiveSettings, source: LiveSource): Map<String, String> = mapOf(
+    fun encode(s: LiveSettings, source: LiveSource, micSource: MicSource = MicSource.AUTO): Map<String, String> = mapOf(
         "live.sampleRate" to s.sampleRate.toString(),
         "live.fftSize" to s.fftSize.toString(),
         "live.decimations" to s.decimations.toString(),
@@ -17,6 +18,7 @@ object LiveSettingsCodec {
         "live.averaging" to s.averaging.toString(),
         "live.peakHold" to s.peakHold.name,
         "live.source" to source.name,
+        "live.micSource" to micSource.name,
     )
 
     fun decodeSettings(values: Map<String, String>): LiveSettings {
@@ -32,6 +34,9 @@ object LiveSettingsCodec {
         )
         return if (s.validate().isEmpty()) s else d
     }
+
+    fun decodeMicSource(values: Map<String, String>): MicSource =
+        MicSource.entries.firstOrNull { it.name == values["live.micSource"] } ?: MicSource.AUTO
 
     fun decodeSource(values: Map<String, String>): LiveSource =
         LiveSource.entries.firstOrNull { it.name == values["live.source"] } ?: LiveSource.MICROPHONE

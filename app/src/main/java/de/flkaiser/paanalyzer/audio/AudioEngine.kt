@@ -13,7 +13,6 @@ import androidx.annotation.RequiresApi
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
-import android.media.MediaRecorder
 import androidx.core.content.ContextCompat
 import de.flkaiser.paanalyzer.live.LiveInput
 import kotlinx.coroutines.Dispatchers
@@ -91,7 +90,11 @@ class AudioEngine(private val context: Context) {
     }
 
     /** Opens the chosen microphone for the live analyzer (same source and processing as for measurements). */
-    fun openLiveMic(sampleRate: Int, input: AudioDeviceInfo?): LiveInput = LiveInput(createRecord(sampleRate, input), float = true)
+    fun openLiveMic(sampleRate: Int, input: AudioDeviceInfo?, source: MicSource): LiveInput =
+        LiveInput(createRecord(sampleRate, input, source), float = true)
+
+    /** Microphone sources this phone offers. */
+    val micSources: List<MicSource> get() = MicSource.available(supportsUnprocessed)
 
     /**
      * Opens what the phone plays (media, games and unknown usages of other apps) through a granted
@@ -164,7 +167,7 @@ class AudioEngine(private val context: Context) {
         }
     }
 
-    private fun createRecord(sampleRate: Int, input: AudioDeviceInfo?): AudioRecord {
+    private fun createRecord(sampleRate: Int, input: AudioDeviceInfo?, micSource: MicSource = MicSource.AUTO): AudioRecord {
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
             .setSampleRate(sampleRate)
@@ -172,7 +175,7 @@ class AudioEngine(private val context: Context) {
             .build()
         val minBuffer = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT)
         if (minBuffer <= 0) throw AudioException("The microphone does not support $sampleRate Hz.")
-        val source = if (supportsUnprocessed) MediaRecorder.AudioSource.UNPROCESSED else MediaRecorder.AudioSource.VOICE_RECOGNITION
+        val source = micSource.androidSource(supportsUnprocessed)
         val record = try {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 throw AudioException("Microphone permission is required.")
